@@ -14,12 +14,12 @@ require( '../src/js/ghost-ai.js' );
 require( '../src/js/game.js' );
 const ai = window.GHOST_AI;
 
-const { MAZE, CORNERS, PEN_DOORS, GHOST_STARTS, PEN } = maze;
+const { MAZE, CORNERS, PEN_DOORS, GHOST_STARTS, PEN, TUNNEL_ROW, FPS, RELEASE_FRAMES } = maze;
 const { aheadOf, computeTarget, chooseDirection } = ai;
 
 // Fantasma alineado a celda. dir 'up' deja disponibles las demas direcciones.
 function ghost( kind, x, y, dir = 'up' ) {
-  return { x, y, dir, kind, mode: 'active', speed: 0.1, releaseAtDots: 0, bobDir: 1 };
+  return { x, y, dir, kind, mode: 'active', speed: 0.1, releaseAtFrame: 0, bobDir: 1 };
 }
 function pacman( x, y, dir = 'left' ) {
   return { x, y, dir, mode: 'active', speed: 0.125 };
@@ -34,13 +34,18 @@ function same( actual, expected, msg ) {
   assert.deepStrictEqual( { x: actual.x, y: actual.y }, { x: expected.x, y: expected.y }, msg );
 }
 
-test( 'GHOST_STARTS: los cuatro fantasmas con los umbrales del spec', () => {
+test( 'GHOST_STARTS: los cuatro fantasmas salen del pen de 2 en 2 segundos', () => {
   assert.deepStrictEqual(
     GHOST_STARTS.map( ( g ) => g.kind ),
     [ 'blinky', 'pinky', 'inky', 'clyde' ]
   );
-  assert.deepStrictEqual( GHOST_STARTS.map( ( g ) => g.releaseAtDots ), [ 0, 30, 60, 90 ] );
-  // Los cuatro arrancan dentro del pen y sobre celdas transptables.
+  assert.strictEqual( RELEASE_FRAMES, 2 * FPS, 'un fantasma cada 2 segundos' );
+  assert.deepStrictEqual(
+    GHOST_STARTS.map( ( g ) => g.releaseAtFrame ),
+    [ 0, RELEASE_FRAMES, 2 * RELEASE_FRAMES, 3 * RELEASE_FRAMES ],
+    'cascada 0s / 2s / 4s / 6s'
+  );
+  // Los cuatro arrancan dentro del pen y sobre celdas transisables.
   for ( const g of GHOST_STARTS ) {
     assert.ok( g.x >= 11 && g.x <= 16 && g.y >= 13 && g.y <= 15, g.kind + ' dentro del pen' );
     assert.strictEqual( MAZE[ g.y ][ g.x ], 0, g.kind + ' sobre celda vacia' );
@@ -270,46 +275,84 @@ function newGame() {
   return window.createGame();
 }
 
-test( 'blinky sale en el primer frame y los demas esperan su umbral', () => {
+test( 'blinky sale en el primer frame y los demas siguen esperando', () => {
   const game = newGame();
   for ( const g of game.ghosts ) assert.strictEqual( g.mode, 'pen', g.kind + ' arranca en el pen' );
   window.update( game );
   assert.deepStrictEqual(
     game.ghosts.filter( ( g ) => g.mode === 'active' ).map( ( g ) => g.kind ),
     [ 'blinky' ],
-    'solo blinky (umbral 0) queda activo tras el primer update'
+    'solo blinky (releaseAtFrame 0) queda activo tras el primer update'
   );
 } );
 
-test( 'cada fantasma se libera exactamente en su umbral de dots', () => {
+// Primer frame en el que cada fantasma sale del pen. Se llama a updateGhost
+// con el reloj advance a mano para que una muerte de Pacman (que reinicia el
+// reloj) no falsee la medicion.
+function releaseFrames( hasta ) {
   const game = newGame();
-  // dotsEaten solo crece y mode nunca revierte, asi que basta un mismo juego.
-  const tabla = [
-    [ 0, 'blinky' ],
-    [ 29, 'blinky' ], // aun solo blinky
-    [ 30, 'blinky,pinky' ],
-    [ 59, 'blinky,pinky' ], // aun sin inky
-    [ 60, 'blinky,pinky,inky' ],
-    [ 89, 'blinky,pinky,inky' ], // aun sin clyde
-    [ 90, 'blinky,pinky,inky,clyde' ],
-  ];
-  for ( const [ dots, esperado ] of tabla ) {
-    game.dotsEaten = dots;
-    window.update( game );
-    const activos = game.ghosts.filter( ( g ) => g.mode === 'active' ).map( ( g ) => g.kind ).join( ',' );
-    assert.strictEqual( activos, esperado, 'activos con ' + dots + ' dots' );
+  game.pacman.speed = 0;
+  const salio = {};
+  for ( let f = 1; f <= hasta; f++ ) {
+    game.frames = f;
+    for ( const g of game.ghosts ) {
+      window.GAME.updateGhost( game, g );
+      if ( g.mode === 'active' && ! ( g.kind in salio ) ) salio[ g.kind ] = f;
+    }
   }
+  return salio;
+}
+
+test( 'cada fantasma sale del pen en su turno: 0s, 2s, 4s, 6s', () => {
+  const esperado = { blinky: 1, pinky: RELEASE_FRAMES, inky: 2 * RELEASE_FRAMES, clyde: 3 * RELEASE_FRAMES };
+  const salio = releaseFrames( 3 * RELEASE_FRAMES );
+  for ( const kind of [ 'blinky', 'pinky', 'inky', 'clyde' ] ) {
+    assert.strictEqual( salio[ kind ], esperado[ kind ], kind + ' sale en el frame ' + esperado[ kind ] );
+  }
+} );
+
+test( 'nadie se adelanta a su turno: un frame antes sigue en el pen', () => {
+  const game = newGame();
+  game.pacman.speed = 0;
+  game.frames = RELEASE_FRAMES - 1;
+  for ( const g of game.ghosts ) {
+    if ( g.releaseAtFrame === 0 ) continue; // blinky ya esta fuera
+    window.GAME.updateGhost( game, g );
+    assert.strictEqual( g.mode, 'pen', g.kind + ' sigue esperando en el frame ' + ( RELEASE_FRAMES - 1 ) );
+  }
+} );
+
+test( 'el reloj del pen se reinicia cuando Pacman muere', () => {
+  const game = newGame();
+  game.pacman.speed = 0;
+  for ( let f = 0; f < 50; f++ ) window.update( game );
+  assert.ok( game.frames > 0, 'el reloj avanza' );
+  // Muerte forzada: Pacman encima de un fantasma.
+  const g = game.ghosts[ 0 ];
+  g.x = game.pacman.x;
+  g.y = game.pacman.y;
+  window.update( game );
+  assert.strictEqual( game.lives, 2, 'perdio una vida' );
+  assert.strictEqual( game.frames, 0, 'el reloj vuelve a empezar' );
+  for ( const gh of game.ghosts ) {
+    assert.strictEqual( gh.mode, 'pen', gh.kind + ' vuelve al pen' );
+    assert.strictEqual( gh.bobDir, 1, gh.kind + ' reanuda el bobbing hacia abajo' );
+    assert.strictEqual( gh.x, GHOST_STARTS.find( ( s ) => s.kind === gh.kind ).x, gh.kind + ' vuelve a su celda' );
+  }
+  window.update( game );
+  assert.strictEqual( game.frames, 1, 'y sigue contando desde ahi' );
 } );
 
 test( 'el bobbing del pen se mantiene dentro de homeY +- 0.4 y no come dots', () => {
   const game = newGame();
-  // Pacman quieto: si no, el cambio de dots seria suyo y no del fantasma.
+  // Pacman quieto: si no, el cambio de turno seria suyo y no del fantasma.
   game.pacman.speed = 0;
   const pinky = game.ghosts.find( ( g ) => g.kind === 'pinky' );
   const homeY = GHOST_STARTS.find( ( s ) => s.kind === 'pinky' ).y;
   const dotsIniciales = game.dotsRemaining;
   const scoreInicial = game.score;
-  for ( let f = 0; f < 200; f++ ) {
+  // Solo hasta su turno: a partir de ahi pinky sale del pen y ya no oscila.
+  for ( let f = 1; f < pinky.releaseAtFrame; f++ ) {
     window.update( game );
     assert.strictEqual( pinky.mode, 'pen', 'sigue esperando en el frame ' + f );
     assert.ok(
@@ -317,6 +360,7 @@ test( 'el bobbing del pen se mantiene dentro de homeY +- 0.4 y no come dots', ()
       'fuera de rango en el frame ' + f + ': y=' + pinky.y
     );
   }
+  assert.strictEqual( pinky.mode, 'pen', 'llego hasta su turno sin salir antes' );
   assert.strictEqual( game.dotsRemaining, dotsIniciales, 'no comio dots' );
   assert.strictEqual( game.score, scoreInicial, 'no sumo puntos' );
 } );
@@ -324,8 +368,8 @@ test( 'el bobbing del pen se mantiene dentro de homeY +- 0.4 y no come dots', ()
 test( 'un fantasma liberado sale por la puerta y no vuelve a entrar al pen', () => {
   for ( const kind of [ 'blinky', 'pinky', 'inky', 'clyde' ] ) {
     const game = newGame();
-    for ( const g of game.ghosts ) g.releaseAtDots = 0; // todos fuera ya
-    game.dotsEaten = 0;
+    for ( const g of game.ghosts ) g.releaseAtFrame = 0; // todos fuera ya
+    game.frames = 0;
     const g = game.ghosts.find( ( x ) => x.kind === kind );
     const columnas = new Set();
     let salio = null;
@@ -352,5 +396,82 @@ test( 'la boca del pen sigue apuntando a la puerta, no a la personalidad', () =>
     const self = ghost( 'pinky', puerta.x, puerta.y, 'up' );
     const target = computeTarget( 'pinky', ctxOf( self, pacman( 13, 23 ), 'active' ) );
     assert.deepStrictEqual( target, puerta, 'sobre la puerta ' + puerta.x + ',' + puerta.y );
+  }
+} );
+
+// --- movimiento: step() en grid.js ---
+
+test( 'step ancla al centro exacto de la celda al cruzarla', () => {
+  const { step } = require( '../src/js/grid.js' );
+  // 0.11 no divide 1: al sumar x += dir.x * speed el cruce caeria en 10.999... y
+  // el actor nunca volveria a estar alineado con la rejilla. step() recorta al
+  // centro para que el cruce sea exacto con cualquier velocidad.
+  const a = { x: 13, y: 14, dir: 'right' };
+  let cruces = 0;
+  for ( let i = 0; i < 500; i++ ) {
+    if ( !step( a, 0.11 ) ) continue;
+    cruces++;
+    assert.ok( Number.isInteger( a.x ), 'x no entero al cruzar en el paso ' + i + ': ' + a.x );
+    assert.ok( Number.isInteger( a.y ), 'y no entero al cruzar en el paso ' + i + ': ' + a.y );
+  }
+  assert.ok( cruces >= 4, 'tuvo que cruzar varias celdas, no ' + cruces );
+} );
+
+test( 'regresion: con velocidad 0.11 ningun fantasma se sale del laberinto', () => {
+  // Antes, x += dir.x * 0.11 hacia que blinky nunca se realinease con la
+  // rejilla: dejaba de comprobar muros, cruzaba el borde y se iba fuera del
+  // canvas (llegaba a x = -9), o sea, desaparecia.
+  const game = newGame();
+  game.lives = 1e9;
+  game.pacman.speed = 0;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  for ( let f = 0; f < 3000; f++ ) {
+    window.update( game );
+    for ( const g of game.ghosts ) {
+      const cx = Math.round( g.x );
+      const cy = Math.round( g.y );
+      // En la fila del tunel salir por el borde es legal: wrapTunnel lo traera
+      // de vuelta al frame siguiente.
+      const borde = Math.round( g.y ) === TUNNEL_ROW && ( cx < 0 || cx >= 28 );
+      assert.ok(
+        borde || ( cx >= 0 && cx < 28 && cy >= 0 && cy < 31 && MAZE[ cy ][ cx ] !== 1 ),
+        g.kind + ' en (' + cx + ',' + cy + ') en el frame ' + f
+      );
+      minX = Math.min( minX, g.x );
+      maxX = Math.max( maxX, g.x );
+    }
+  }
+  assert.ok( minX >= 0 && maxX <= 28, 'los fantasmas se quedaron en el ancho del laberinto: ' + minX + '..' + maxX );
+} );
+
+test( 'el tunel sigue siendo ciclico: nadie se queda atascido fuera', () => {
+  const game = newGame();
+  game.lives = 1e9;
+  game.pacman.speed = 0;
+  const blinky = game.ghosts[ 0 ];
+  blinky.x = 0;
+  blinky.y = TUNNEL_ROW;
+  blinky.dir = 'left';
+  blinky.mode = 'active';
+  // Objetivo abajo y a la izquierda, para que siga por el tunel.
+  game.pacman.x = 1;
+  game.pacman.y = 29;
+  game.pacman.dir = 'left';
+  // Al asomar por x = 0 tiene que reaparecer por la derecha, no quedarse
+  // clavado en el exterior del canvas.
+  window.GAME.moveGhost( game, blinky );
+  assert.ok(
+    blinky.x > 27 && blinky.x < 28,
+    'reaparece por la derecha al cruzar el tunel, no en ' + blinky.x
+  );
+  for ( let f = 0; f < 200; f++ ) {
+    window.GAME.moveGhost( game, blinky );
+    // Solo puede asomar fuera del ancho del laberinto en la fila del tunel.
+    const asoma = blinky.x < 0 || blinky.x > 28;
+    assert.ok(
+      !asoma || Math.round( blinky.y ) === TUNNEL_ROW,
+      'asomo fuera del tunel en el frame ' + f + ': ' + blinky.x + ',' + blinky.y
+    );
   }
 } );
