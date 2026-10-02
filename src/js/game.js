@@ -167,7 +167,12 @@ function resetPositions( game ) {
     g.x = GHOST_STARTS[ i ].x;
     g.y = GHOST_STARTS[ i ].y;
     g.dir = 'up';
+    // Todos vuelven al pen a esperar: la secuencia de liberacion (y por tanto
+    // el ritmo del nivel) arranca de cero otra vez.
+    g.mode = 'pen';
+    g.bobDir = 1;
   } );
+  game.dotsEaten = 0;
 }
 
 function collides( a, b ) {
