@@ -51,12 +51,37 @@ const MAZE = MAZE_STR.map( ( row ) => row.split( '' ).map( parseTile ) );
 
 const TUNNEL_ROW = 14;
 const PACMAN_START = { x: 13, y: 23 };
-const GHOST_STARTS = [
-  { x: 13, y: 14, kind: 'hunter' }, // dentro de la pen
-  { x: 14, y: 14, kind: 'random' }, // dentro de la pen
+
+// Pen: interior transitable donde los fantasmas esperan su turno. La unica
+// salida son las dos celdas de puerta (3) de la fila 12.
+const PEN = { x0: 11, y0: 13, x1: 16, y1: 15 };
+const PEN_DOORS = [
+  { x: 13, y: 12 },
+  { x: 14, y: 12 },
 ];
 
-window.MAZE = MAZE;
-window.TUNNEL_ROW = TUNNEL_ROW;
-window.PACMAN_START = PACMAN_START;
-window.GHOST_STARTS = GHOST_STARTS;
+// Posicion inicial de cada fantasma. releaseAtDots = cuantos dots deben
+// haberse comido para que salga del pen.
+const GHOST_STARTS = [
+  { x: 13, y: 14, kind: 'blinky', releaseAtDots: 0 },
+  { x: 14, y: 14, kind: 'pinky', releaseAtDots: 30 },
+  { x: 15, y: 14, kind: 'inky', releaseAtDots: 60 },
+  { x: 12, y: 14, kind: 'clyde', releaseAtDots: 90 },
+];
+
+// Esquinas de dispersion. En este spec solo clyde consulta la suya.
+const CORNERS = {
+  blinky: { x: 25, y: 0 },
+  pinky: { x: 2, y: 0 },
+  inky: { x: 27, y: 35 },
+  clyde: { x: 0, y: 35 },
+};
+
+const api = { MAZE, TUNNEL_ROW, PACMAN_START, PEN, PEN_DOORS, GHOST_STARTS, CORNERS };
+
+// Dual export: cada clave queda como global en el navegador y en module.exports
+// para que node --test pueda require('./maze.js').
+if ( typeof window !== 'undefined' ) for ( const k in api ) window[ k ] = api[ k ];
+if ( typeof module !== 'undefined' && typeof module.exports !== 'undefined' ) {
+  module.exports = api;
+}

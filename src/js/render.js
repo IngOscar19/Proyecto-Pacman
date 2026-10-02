@@ -1,5 +1,8 @@
 // render.js
 // Dibujo arcade sobre canvas. Usa game.grid (no MAZE) para reflejar dots comidos.
+// Depende de window.GRID (src/js/grid.js) para las direcciones de los ojos.
+
+const { DIRS } = window.GRID;
 
 const TILE = 20;
 const WALL_COLOR = '#2121ff';
