@@ -11,6 +11,8 @@
   const WALL_COLOR = '#2121ff';
   const DOOR_COLOR = '#ffb8ff';
   const DOT_COLOR = '#ffb897';
+  const FLASH_COLOR = '#ffffff';
+  const PELLET_RADIUS = 5;
 
   function cellCenter( x, y ) {
     return { cx: x * TILE + TILE / 2, cy: y * TILE + TILE / 2 };
@@ -72,14 +74,19 @@
     ctx.stroke();
   }
 
-  function drawDots( ctx, gGrid ) {
-    ctx.fillStyle = DOT_COLOR;
+  // Las power pellets (tile 4) son el mismo punto de color que los dots pero mas
+  // grandes, y parpadean en blanco mientras el laberinto esta tranquilo.
+  function drawDots( ctx, gGrid, frame ) {
+    const blink = Math.floor( frame / 10 ) % 2 === 1;
     for ( let y = 0; y < gGrid.length; y++ ) {
       for ( let x = 0; x < gGrid[ 0 ].length; x++ ) {
-        if ( gGrid[ y ][ x ] !== 2 ) continue;
+        const v = gGrid[ y ][ x ];
+        if ( v !== 2 && v !== 4 ) continue;
+        const pellet = v === 4;
+        ctx.fillStyle = pellet && blink ? FLASH_COLOR : DOT_COLOR;
         const { cx, cy } = cellCenter( x, y );
         ctx.beginPath();
-        ctx.arc( cx, cy, 2.5, 0, Math.PI * 2 );
+        ctx.arc( cx, cy, pellet ? PELLET_RADIUS : 2.5, 0, Math.PI * 2 );
         ctx.fill();
       }
     }
@@ -162,7 +169,7 @@
 
     drawWalls( ctx, gGrid );
     drawDoor( ctx, gGrid );
-    drawDots( ctx, gGrid );
+    drawDots( ctx, gGrid, frame );
     drawPacman( ctx, game.pacman, frame );
     game.ghosts.forEach( ( g, i ) => drawGhost( ctx, g, GHOST_COLORS[ i ] || '#ff0000' ) );
     drawHUD( ctx, game, W );
