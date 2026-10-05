@@ -11,15 +11,22 @@
 
   const { aligned, canMove, wrapTunnel, step } = grid;
   const { chooseDirection } = ghostAi;
-  const { MAZE, PACMAN_START, GHOST_STARTS } = maze;
+  const { MAZE, PACMAN_START, GHOST_STARTS, FRIGHT_FRAMES, FRIGHT_CHAIN } = maze;
 
   const PACMAN_SPEED = 0.125; // 1/8 celda/frame -> alinea cada 8 frames
   const GHOST_SPEED = 0.1;    // 1/10 celda/frame
   const BLINKY_SPEED = 0.11;  // un poco mas rapido: es el perseguidor
+  const FRIGHT_SPEED = 0.05;  // asustado: la mitad de velocidad
   const BOB = 0.4;            // amplitud de la oscilacion dentro del pen
 
   function ghostSpeed( kind ) {
     return kind === 'blinky' ? BLINKY_SPEED : GHOST_SPEED;
+  }
+
+  // La velocidad depende solo del modo, nunca se guarda en el fantasma: asi no
+  // puede quedar desincronizada cuando el frightened expira.
+  function speedOf( g ) {
+    return g.mode === 'frightened' ? FRIGHT_SPEED : ghostSpeed( g.kind );
   }
 
   // Fila del pen que le corresponde a cada fantasma (todos arrancan en la 14).
@@ -46,6 +53,11 @@
       // Frames jugados desde el ultimo reset. Es el reloj que decide cuando
       // sale cada fantasma del pen.
       frames: 0,
+      // frightened: hasta que frame se acaba? 0 = nadie asustado. Se renueva
+      // cada vez que Pacman come una power pellet.
+      frightUntilFrame: 0,
+      // Puntos que vale el siguiente fantasma comido (200, 400, 800, 1600).
+      frightScore: FRIGHT_CHAIN[ 0 ],
       grid: gameGrid,
       pacman: {
         x: PACMAN_START.x,
@@ -65,8 +77,42 @@
         mode: 'pen',
         releaseAtFrame: g.releaseAtFrame,
         bobDir: 1,
+        // frightened puede invertir su direccion una sola vez por periodo.
+        didReverse: false,
       } ) ),
     };
+  }
+
+  // Quedan fantasmas asustados ahora mismo? Lo lee tambien render.js, para el
+// parpadeo del laberinto.
+function isFrightened( game ) {
+  return game.frightUntilFrame > game.frames;
+}
+
+// Comer una power pellet: renueva el reloj del frightened, reinicia la cadena de
+// puntos y asusta a los fantasmas que ya estan sueltos. Los del pen no se
+// asustan (alli dentro son un refugio) y salen despues ya normales.
+function eatPellet( game ) {
+    game.frightUntilFrame = game.frames + FRIGHT_FRAMES;
+    game.frightScore = FRIGHT_CHAIN[ 0 ];
+    for ( const g of game.ghosts ) {
+      if ( g.mode !== 'active' ) continue;
+      g.mode = 'frightened';
+      g.didReverse = false;
+    }
+  }
+
+  // El frightened se acaba: todos los asustados vuelven a su ritmo normal y la
+  // cadena de puntos empieza otra vez desde 200.
+  function expireFright( game ) {
+    if ( isFrightened( game ) || game.frightUntilFrame === 0 ) return;
+    game.frightUntilFrame = 0;
+    game.frightScore = FRIGHT_CHAIN[ 0 ];
+    for ( const g of game.ghosts ) {
+      if ( g.mode !== 'frightened' ) continue;
+      g.mode = 'active';
+      g.didReverse = false;
+    }
   }
 
   function movePacman( game ) {
@@ -89,6 +135,13 @@
         game.score += 10;
         game.dotsRemaining--;
         game.dotsEaten++;
+      }
+      // Comer power pellet: 50 puntos y todos los fantasmas sueltos se asustan.
+      // No cuenta como dot: dotsRemaining solo baja con los tiles de tipo 2.
+      if ( gGrid[ p.y ][ p.x ] === 4 ) {
+        gGrid[ p.y ][ p.x ] = 0;
+        game.score += 50;
+        eatPellet( game );
       }
       // Si no puede seguir, se detiene en la celda.
       if ( !canMove( gGrid, p.x, p.y, p.dir, 'pacman' ) ) return;
@@ -117,7 +170,7 @@ function bobGhost( g ) {
     const home = homeRow( g );
     const min = home - BOB;
     const max = home + BOB;
-    let y = g.y + g.bobDir * g.speed;
+    let y = g.y + g.bobDir * speedOf( g );
     // Se ancla al extremo en vez de pasarse, para no salir de [min,max].
     if ( y >= max ) {
       y = max;
@@ -160,7 +213,7 @@ function updateGhost( game, g ) {
       if ( !canMove( gGrid, g.x, g.y, g.dir, 'ghost' ) ) return;
     }
 
-    step( g, g.speed );
+    step( g, speedOf( g ) );
     wrapTunnel( g, width );
   }
 
@@ -178,8 +231,12 @@ function updateGhost( game, g ) {
       // el ritmo del nivel) arranca de cero otra vez.
       g.mode = 'pen';
       g.bobDir = 1;
+      g.didReverse = false;
     } );
     game.frames = 0;
+    // Morir limpia el frightened: a la vida siguiente nadie sale asustado.
+    game.frightUntilFrame = 0;
+    game.frightScore = FRIGHT_CHAIN[ 0 ];
   }
 
   function collides( a, b ) {
@@ -190,6 +247,7 @@ function updateGhost( game, g ) {
     // El reloj del pen corre solo mientras se juega: si Pacman muere y se
     // reinician las posiciones, resetPositions lo vuelve a poner a 0.
     game.frames++;
+    expireFright( game );
     movePacman( game );
     game.ghosts.forEach( ( g ) => updateGhost( game, g ) );
 
@@ -208,7 +266,7 @@ function updateGhost( game, g ) {
     if ( game.dotsRemaining <= 0 ) game.state = 'won';
   }
 
-  const api = { createGame, update, resetPositions, movePacman, updateGhost, moveGhost, decideGhost, bobGhost, releaseGhost, collides };
+  const api = { createGame, update, resetPositions, movePacman, updateGhost, moveGhost, decideGhost, bobGhost, releaseGhost, collides, isFrightened, speedOf };
 
   if ( typeof window !== 'undefined' ) {
     window.createGame = createGame;

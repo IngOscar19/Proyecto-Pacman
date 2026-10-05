@@ -96,3 +96,179 @@ test( 'las power pellets estan sobre celdas transitables y no en el pen', () => 
     assert.ok( salidas.length > 0, 'hay pasillo en ' + p.x + ',' + p.y );
   }
 } );
+
+// --- Paso 3: comer la pellet activa el frightened ---
+
+// Suelta a todos los fantasmas: fuera del pen y lejos de Pacman.
+function freeGhosts( game ) {
+  for ( const g of game.ghosts ) {
+    g.mode = 'active';
+    g.x = 21;
+    g.y = 5;
+  }
+  game.pacman.x = 6;
+  game.pacman.y = 29;
+}
+
+// Avanza n frames dejando a los fantasmas aparcados en la esquina lejana. Hace
+// falta porque un asustado todavia hace dano en este paso: si se cruzaran con
+// Pacman, el update lo mataria, resetPositions limpiaria el frightened y el test
+// mediria otra cosa. Asi lo que se mide es el reloj.
+function runFrames( game, n ) {
+  game.pacman.speed = 0;
+  for ( let f = 0; f < n; f++ ) {
+    for ( const g of game.ghosts ) {
+      g.x = 21;
+      g.y = 5;
+    }
+    window.update( game );
+  }
+}
+
+test( 'una partida nueva no tiene frightened activo', () => {
+  const game = newGame();
+  assert.strictEqual( game.frightUntilFrame, 0, 'sin reloj de frightened' );
+  assert.strictEqual( game.frightScore, FRIGHT_CHAIN[ 0 ], 'la cadena empieza en 200' );
+  for ( const g of game.ghosts ) {
+    assert.strictEqual( g.mode, 'pen', g.kind + ' arranca en el pen' );
+    assert.strictEqual( g.didReverse, false, g.kind + ' sin invertir' );
+  }
+  for ( let f = 0; f < 10; f++ ) {
+    window.update( game );
+    assert.strictEqual( game.frightUntilFrame, 0, 'nadie se asusta sin pellet' );
+  }
+} );
+
+test( 'comer una pellet suma 50, la borra del laberinto y asusta a los sueltos', () => {
+  const game = newGame();
+  freeGhosts( game );
+  const pellet = POWER_PELLETS[ 0 ];
+  const score = game.score;
+
+  pelletAt( game, pellet.x, pellet.y );
+
+  assert.strictEqual( game.score, score + 50, '50 puntos por la pellet' );
+  assert.strictEqual( game.grid[ pellet.y ][ pellet.x ], 0, 'la celda queda vacia' );
+  // dotsRemaining no baja: al empezar son 275, no 276, porque la celda de
+  // inicio de Pacman ya estaba vacia (276 tiles de tipo 2 en el laberinto).
+  assert.strictEqual( game.dotsRemaining, 275, 'la pellet no cuenta como dot' );
+  assert.strictEqual( game.frightUntilFrame, game.frames + FRIGHT_FRAMES, 'el reloj corre 6s' );
+  for ( const g of game.ghosts ) {
+    assert.strictEqual( g.mode, 'frightened', g.kind + ' asustado' );
+    assert.strictEqual( g.didReverse, false, g.kind + ' puede invertir' );
+  }
+} );
+
+test( 'comer una pellet no asusta a los fantasmas que siguen en el pen', () => {
+  const game = newGame();
+  // Un update: blinky sale del pen (releaseAtFrame 0) y los otros tres siguen.
+  game.pacman.speed = 0;
+  window.update( game );
+  assert.deepStrictEqual(
+    game.ghosts.map( ( g ) => g.mode ),
+    [ 'active', 'pen', 'pen', 'pen' ],
+    'solo blinky esta suelto'
+  );
+
+  pelletAt( game, POWER_PELLETS[ 1 ].x, POWER_PELLETS[ 1 ].y );
+
+  assert.deepStrictEqual(
+    game.ghosts.map( ( g ) => g.mode ),
+    [ 'frightened', 'pen', 'pen', 'pen' ],
+    'los del pen se libran del frightened'
+  );
+  assert.ok( window.GAME.isFrightened( game ), 'el reloj corre igualmente' );
+} );
+
+test( 'el frightened expira y devuelve la velocidad y la cadena', () => {
+  const game = newGame();
+  freeGhosts( game );
+  pelletAt( game, POWER_PELLETS[ 0 ].x, POWER_PELLETS[ 0 ].y );
+  game.frightScore = FRIGHT_CHAIN[ 2 ]; // como si ya hubiera comido dos fantasmas
+
+  runFrames( game, FRIGHT_FRAMES - 1 );
+  assert.ok( window.GAME.isFrightened( game ), 'aun queda frightened' );
+  for ( const g of game.ghosts ) assert.strictEqual( g.mode, 'frightened', g.kind + ' sigue asustado' );
+
+  window.update( game );
+
+  assert.strictEqual( game.frightUntilFrame, 0, 'el reloj se apaga' );
+  assert.ok( !window.GAME.isFrightened( game ), 'ya no hay frightened' );
+  assert.strictEqual( game.frightScore, FRIGHT_CHAIN[ 0 ], 'la cadena vuelve a 200' );
+  for ( const g of game.ghosts ) {
+    assert.strictEqual( g.mode, 'active', g.kind + ' vuelve a su normalidad' );
+    assert.strictEqual( window.GAME.speedOf( g ), g.kind === 'blinky' ? 0.11 : 0.1, g.kind + ' a su velocidad' );
+  }
+} );
+
+test( 'la velocidad sale del mode: asustado 0.05, normal 0.1 o 0.11', () => {
+  const game = newGame();
+  const blinky = game.ghosts[ 0 ];
+  assert.strictEqual( window.GAME.speedOf( blinky ), 0.11, 'blinky 0.11' );
+  blinky.mode = 'frightened';
+  assert.strictEqual( window.GAME.speedOf( blinky ), 0.05, 'asustado 0.05' );
+  blinky.mode = 'active';
+  assert.strictEqual( window.GAME.speedOf( blinky ), 0.11, 'y vuelve a 0.11 sin tocar g.speed' );
+  assert.strictEqual( blinky.speed, 0.11, 'g.speed nunca se muta' );
+} );
+
+test( 'un fantasma asustado recorre menos celdas que uno normal en el mismo tiempo', () => {
+  const distancia = ( mode ) => {
+    const game = newGame();
+    freeGhosts( game );
+    game.pacman.speed = 0;
+    const g = game.ghosts[ 0 ];
+    g.mode = mode;
+    const inicio = { x: g.x, y: g.y };
+    for ( let f = 0; f < 120; f++ ) window.GAME.moveGhost( game, g );
+    return Math.hypot( g.x - inicio.x, g.y - inicio.y );
+  };
+  const asustado = distancia( 'frightened' );
+  const normal = distancia( 'active' );
+  assert.ok( asustado > 0, 'el asustado se movio' );
+  assert.ok( asustado < normal, 'el asustado recorre menos: ' + asustado + ' < ' + normal );
+} );
+
+test( 'comer otra pellet renueva el reloj y reinicia la cadena', () => {
+  const game = newGame();
+  freeGhosts( game );
+  pelletAt( game, POWER_PELLETS[ 0 ].x, POWER_PELLETS[ 0 ].y );
+  game.frightScore = FRIGHT_CHAIN[ 3 ];
+
+  // Casi se acaba el primer periodo...
+  runFrames( game, FRIGHT_FRAMES - 1 );
+  assert.ok( window.GAME.isFrightened( game ), 'todavia asustados' );
+
+  // ...y entonces comes la segunda pellet.
+  pelletAt( game, POWER_PELLETS[ 2 ].x, POWER_PELLETS[ 2 ].y );
+  assert.strictEqual( game.frightScore, FRIGHT_CHAIN[ 0 ], 'la cadena vuelve a 200' );
+  assert.ok( window.GAME.isFrightened( game ), 'el frightened sigue vivo' );
+
+  // Y el nuevo periodo dura otros 6s completos desde su propio frame.
+  runFrames( game, FRIGHT_FRAMES - 1 );
+  assert.ok( window.GAME.isFrightened( game ), 'no se acabo antes de tiempo' );
+  runFrames( game, 1 );
+  assert.ok( !window.GAME.isFrightened( game ), 'y expira justo en el frame previsto' );
+} );
+
+test( 'morir limpia el frightened y la cadena', () => {
+  const game = newGame();
+  freeGhosts( game );
+  pelletAt( game, POWER_PELLETS[ 0 ].x, POWER_PELLETS[ 0 ].y );
+  game.frightScore = FRIGHT_CHAIN[ 2 ];
+
+  // Muerte forzada: un fantasma normal encima de Pacman.
+  game.pacman.x = 6;
+  game.pacman.y = 29;
+  const killer = game.ghosts[ 0 ];
+  killer.mode = 'active';
+  killer.x = game.pacman.x;
+  killer.y = game.pacman.y;
+  window.update( game );
+
+  assert.strictEqual( game.lives, 2, 'perdio una vida' );
+  assert.strictEqual( game.frightUntilFrame, 0, 'nadie queda asustado' );
+  assert.strictEqual( game.frightScore, FRIGHT_CHAIN[ 0 ], 'la cadena vuelve a empezar' );
+  assert.ok( !window.GAME.isFrightened( game ), 'el modo asustado se apaga' );
+  for ( const g of game.ghosts ) assert.strictEqual( g.mode, 'pen', g.kind + ' vuelve al pen' );
+} );

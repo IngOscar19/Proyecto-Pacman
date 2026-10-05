@@ -95,7 +95,7 @@ Convención nueva: el rng se pasa como `ctx.rng` a `chooseDirection` y vale `Mat
 - [ ] Un fantasma comido queda `eaten`, se dibuja solo con ojos y no le quita vida a Pacman.
 - [ ] Un `eaten` se dirige a la puerta del pen, entra y vuelve a salir como `active`.
 - [ ] Un fantasma `active` que toca a Pacman le quita una vida y reinicia `frightUntilFrame`.
-- [ ] La victoria sigue exigiendo los 276 tiles de tipo 2 (las pellets no cuentan).
+- [ ] La victoria sigue exigiendo vaciar los dots de tipo 2 (275 al empezar, porque la celda de inicio de Pacman ya está vacía; las pellets no cuentan).
 - [ ] `resetPositions` devuelve a los 4 fantasmas a `pen` y limpia `frightUntilFrame` y `frightScore`.
 - [ ] El laberinto parpadea en blanco/azul mientras dure el frightened y los asustados en blanco en los últimos `FRIGHT_FLASH_FRAMES`.
 
