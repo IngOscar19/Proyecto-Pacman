@@ -60,7 +60,7 @@ Reglas de `mode`:
 
 - `pen`: oscila y espera su `releaseAtFrame` (SPEC 01, sin cambios).
 - `frightened`: dirección aleatoria entre las legales salvo la inversa; si la inversa es la única salida, la toma y marca `didReverse`.
-- `eaten`: objetivo = puerta del pen más cercana; al entrar en `PEN` pasa a `pen`, y como su `releaseAtFrame` ya pasó, `releaseGhost` lo saca en el frame siguiente.
+- `eaten`: objetivo = la celda de **dentro** de la puerta del pen más cercana, `(13,13)` o `(14,13)`. Al entrar en `PEN` pasa a `pen`, y como su `releaseAtFrame` ya pasó, `releaseGhost` lo saca en el frame siguiente. Si el objetivo fuese la puerta en sí, el fantasma la pisaría, vería que ya está encima y daría media vuelta para siempre sin bajar al pen.
 - Comer una pellet solo afecta a los fantasmas con `mode === 'active'`.
 - Comer una pellet renueva `frightUntilFrame` y pone `frightScore` a 200.
 - La muerte de Pacman limpia `frightUntilFrame` y `frightScore` en `resetPositions`.
@@ -74,7 +74,7 @@ Convención nueva: el rng se pasa como `ctx.rng` a `chooseDirection` y vale `Mat
 2. `render.js`: `drawDots` dibuja el tile 4 como círculo de radio 5. Manual: se ven 4 círculos grandes parpadeando en el laberinto; `node --test` pasa. Commit: dibujo de la power pellet.
 3. `game.js`: en `movePacman` la rama del tile 4 pone la celda a 0, suma 50, marca `frightUntilFrame = game.frames + FRIGHT_FRAMES`, pone `frightScore` a 200 y pasa a `frightened` (con `didReverse = false`) a los fantasmas `active`. `update` expira el timer y los devuelve a `active`. `speedOf` en `game.js` resuelve la velocidad por mode. Tests: puntuación, timer, expiración, renovación y que los del pen no se asustan. Manual: al comer una pellet los 4 fantasmas se ralentizan y a los 6s recuperan su ritmo. Commit: comer una pellet activa el modo asustado.
 4. `ghost-ai.js`: `computeTarget` devuelve la puerta del pen para `eaten` y el objetivo existente para `frightened`; `chooseDirection` con `mode === 'frightened'` elige al azar entre las legales salvo la inversa (o la inversa si es la única, marcando `didReverse`), y exporta `insidePen`. Tests con `rng` inyectado: determinismo y legalidad. Manual: los fantasmas asustados ya no persiguen a Pacman. Commit: frightened se mueve al azar.
-5. `game.js`: en `update` la colisión con un `frightened` suma `frightScore` (doblado y con tope en `FRIGHT_CHAIN[3]`), lo pasa a `eaten` y no le quita la vida; un `eaten` nunca hace daño. `updateGhost` detecta la entrada en el pen y lo devuelve a modo `pen`. Tests: cadena 200/400/800/1600, tope, `eaten` no mata, ojos vuelven y salen. Manual: Pacman se come fantasmas y ve los ojos volver al pen y salir. Commit: comer fantasmas asustados.
+5. `game.js`: en `update` la colisión con un `frightened` suma `frightScore` (doblado y con tope en `FRIGHT_CHAIN[3]`), lo pasa a `eaten` y no le quita la vida; un `eaten` nunca hace daño. `updateGhost` detecta la entrada en el pen y lo devuelve a modo `pen`. En `ghost-ai.js` el objetivo de `eaten` es la celda de dentro de la puerta, no la puerta. Tests: cadena 200/400/800/1600, tope, `eaten` no mata, ojos vuelven y salen. Manual: Pacman se come fantasmas y ve los ojos volver al pen y salir. Commit: comer fantasmas asustados.
 6. `render.js`: fantasmas `frightened` en azul con boca abierta y en blanco durante los últimos `FRIGHT_FLASH_FRAMES`; fantasmas `eaten` solo con ojos; paredes en blanco o azul mientras dure el frightened. Manual: se ve el parpadeo y se distingue asustado de comido. Commit: render del modo asustado.
 
 ## Acceptance criteria
@@ -122,7 +122,7 @@ Convención nueva: el rng se pasa como `ctx.rng` a `chooseDirection` y vale `Mat
 | Riesgo | Mitigación |
 | --- | --- |
 | Comer una pellet asusta también a los fantasmas que bobbean en el pen | La conversión exige `mode === 'active'`; los del pen conservan su `releaseAtFrame`. |
-| Los ojos no consiguen volver al pen y se quedan dando vueltas | `computeTarget` les devuelve la puerta más cercana y al entrar en `PEN` pasan a `pen`, cuyo `releaseAtFrame` ya venció: salen en el frame siguiente. |
+| Los ojos no consiguen entrar al pen y se quedan orbitando la puerta | `computeTarget` les devuelve la celda de dentro de la puerta, no la puerta: al pisarla siguen bajando. Al entrar en `PEN` pasan a `pen`, cuyo `releaseAtFrame` ya venció, y salen en el frame siguiente. |
 | `ctx.rng` rompe los tests de SPEC 01 | Las cuatro IAs no leen `rng`; el default `Math.random` solo lo consumen los `frightened`. |
 | Un fantasma asustado se queda atascado vibrando contra un muro | `chooseDirection` solo devuelve direcciones legales y, si no queda ninguna, devuelve la inversa. |
 | Expirar el frightened deja velocidad o color a medias | `speedOf(g)` y el color se derivan de `g.mode` en cada frame; no hay estado que limpiar. |

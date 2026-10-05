@@ -376,22 +376,27 @@ test( 'didReverse se limpia al comer una pellet nueva y al expirar', () => {
   assert.strictEqual( blinky.didReverse, false, 'y expirar el frightened tambien' );
 } );
 
-test( 'el objetivo de un eaten es la puerta del pen, y dentro del pen tambien', () => {
-  // Lejos del pen: la puerta mas cercana sigue siendo el unico destino.
+test( 'el objetivo de un eaten es la celda de dentro de la puerta del pen', () => {
+  // Lejos del pen, el destino es la entrada de la puerta mas cercana. No la
+  // puerta en si: al pisarla el fantasma daria media vuelta y no bajaria nunca.
   const self = asustado( 6, 20, 'up', { mode: 'eaten' } );
   const ctx = { grid: MAZE, self, pacman: { x: 13, y: 23, dir: 'left' }, blinky: self, mode: 'eaten' };
-  assert.deepStrictEqual( computeTarget( 'blinky', ctx ), PEN_DOORS[ 0 ], 'desde (6,20) va a la izquierda' );
+  assert.deepStrictEqual( computeTarget( 'blinky', ctx ), { x: 13, y: 13 }, 'desde (6,20) entra por la izquierda' );
 
-  // Y en cada puerta la mantiene.
+  const derecha = asustado( 21, 20, 'up', { mode: 'eaten' } );
+  assert.deepStrictEqual(
+    computeTarget( 'blinky', { ...ctx, self: derecha } ),
+    { x: 14, y: 13 },
+    'desde (21,20) entra por la derecha'
+  );
+
+  // La celda de dentro pertenece al pen: al pisarla el fantasma deja de ser ojos.
   for ( const puerta of PEN_DOORS ) {
-    const enPuerta = asustado( puerta.x, puerta.y, 'up', { mode: 'eaten' } );
-    assert.deepStrictEqual(
-      computeTarget( 'blinky', { ...ctx, self: enPuerta } ),
-      puerta,
-      'sobre la puerta ' + puerta.x + ',' + puerta.y
+    assert.ok(
+      insidePen( { x: puerta.x, y: puerta.y + 1 } ),
+      'la entrada ' + puerta.x + ',' + ( puerta.y + 1 ) + ' esta dentro del pen'
     );
   }
-  // insidePen sigue exportado y detectando el rectangulo del pen.
   assert.ok( insidePen( { x: 13, y: 14 } ), 'dentro' );
   assert.ok( !insidePen( { x: 13, y: 12 } ), 'la boca no esta dentro' );
 } );
@@ -413,4 +418,133 @@ test( 'el rng de la partida lo usan solo los asustados', () => {
   game.ghosts[ 0 ].mode = 'frightened';
   window.GAME.moveGhost( game, game.ghosts[ 0 ] );
   assert.ok( llamadas > 0, 'el asustado sortea direccion' );
+} );
+
+// --- Paso 5: comer fantasmas asustados ---
+
+// Coloca a Pacman encima del fantasma y avanza un frame. Limpia antes el dot que
+// hubiera en esa celda: aqui se mide la cadena de puntos, no los 10 del dot.
+function come( game, g ) {
+  const cx = Math.round( g.x );
+  const cy = Math.round( g.y );
+  if ( game.grid[ cy ][ cx ] === 2 ) {
+    game.grid[ cy ][ cx ] = 0;
+    game.dotsRemaining--;
+  }
+  teleport( game, g.x, g.y );
+  window.update( game );
+}
+
+// Una partida con todos los fantasmas sueltos y asustados.
+function asustados( game ) {
+  freeGhosts( game );
+  pelletAt( game, POWER_PELLETS[ 0 ].x, POWER_PELLETS[ 0 ].y );
+  return game;
+}
+
+test( 'el primero vale 200 y el segundo 400', () => {
+  const game = asustados( newGame() );
+  const antes = game.score;
+
+  come( game, game.ghosts[ 0 ] );
+  assert.strictEqual( game.score, antes + FRIGHT_CHAIN[ 0 ], 'el primero: 200' );
+  assert.strictEqual( game.frightScore, FRIGHT_CHAIN[ 1 ], 'el siguiente valdra 400' );
+  assert.strictEqual( game.ghosts[ 0 ].mode, 'eaten', 'el primero queda en ojos' );
+
+  come( game, game.ghosts[ 1 ] );
+  assert.strictEqual( game.score, antes + FRIGHT_CHAIN[ 0 ] + FRIGHT_CHAIN[ 1 ], 'el segundo: 400' );
+  assert.strictEqual( game.frightScore, FRIGHT_CHAIN[ 2 ], 'el siguiente valdra 800' );
+} );
+
+test( 'la cadena completa es 200, 400, 800, 1600 y se queda en 1600', () => {
+  const game = asustados( newGame() );
+  const pellets = game.score;
+  const esperado = [ 200, 400, 800, 1600, 1600, 1600 ];
+
+  // Los cuatro可以被 comidos y despues ya solo hay ojos que no puntuan: para
+  // seguir probando la cadena se vuelven a asustar a mano.
+  for ( let i = 0; i < esperado.length; i++ ) {
+    const g = game.ghosts[ i % game.ghosts.length ];
+    g.mode = 'frightened';
+    g.x = 6 + i;
+    g.y = 29;
+    const puntos = game.score;
+    come( game, g );
+    assert.strictEqual( game.score - puntos, esperado[ i ], 'fantasma ' + ( i + 1 ) + ': ' + esperado[ i ] );
+  }
+  assert.strictEqual( game.frightScore, FRIGHT_CHAIN[ 3 ], 'la cadena se queda en 1600' );
+  assert.strictEqual( pellets, 50, 'la partida arranco con los 50 de la pellet' );
+} );
+
+test( 'un fantasma comido no hace dano a Pacman', () => {
+  const game = asustados( newGame() );
+  const g = game.ghosts[ 0 ];
+  come( game, g );
+  assert.strictEqual( g.mode, 'eaten', 'quedo en ojos' );
+
+  // Choca otra vez con el, con las vidas intactas.
+  const vidas = game.lives;
+  for ( let i = 0; i < 20; i++ ) {
+    teleport( game, g.x, g.y );
+    window.update( game );
+  }
+  assert.strictEqual( game.lives, vidas, 'los ojos no quitan vidas' );
+  assert.strictEqual( g.mode, 'eaten', 'y sigue siendo un par de ojos' );
+} );
+
+test( 'un fantasma normal sigue quitando una vida', () => {
+  const game = newGame();
+  freeGhosts( game );
+  const g = game.ghosts[ 0 ];
+  assert.strictEqual( g.mode, 'active', 'no esta asustado' );
+  come( game, g );
+  assert.strictEqual( game.lives, 2, 'una vida menos' );
+  assert.strictEqual( g.mode, 'pen', 'y vuelve al pen' );
+} );
+
+test( 'los ojos se mueven a 0.16', () => {
+  const game = asustados( newGame() );
+  const g = game.ghosts[ 0 ];
+  assert.strictEqual( window.GAME.speedOf( g ), 0.05, 'asustado va a 0.05' );
+  g.mode = 'eaten';
+  assert.strictEqual( window.GAME.speedOf( g ), 0.16, 'mas rapido que un fantasma normal' );
+  g.mode = 'active';
+  assert.strictEqual( window.GAME.speedOf( g ), 0.11, 'y un activo vuelve a lo suyo' );
+} );
+
+test( 'los ojos llegan al pen y vuelven a salir', () => {
+  const game = asustados( newGame() );
+  const g = game.ghosts[ 0 ];
+  come( game, g );
+  assert.strictEqual( g.mode, 'eaten', 'arranca como ojos' );
+
+  let entro = -1;
+  let salio = -1;
+  for ( let f = 1; f <= 600 && salio === -1; f++ ) {
+    window.GAME.updateGhost( game, g );
+    if ( entro === -1 && g.mode === 'pen' ) entro = f;
+    // Ha vuelto a ser un fantasma de verdad y ha salido del pen.
+    if ( entro !== -1 && g.mode === 'active' && g.y <= 13 ) salio = f;
+  }
+  assert.ok( entro > 0, 'los ojos entraron en el pen en el frame ' + entro );
+  assert.ok( salio > 0, 'y volvieron a salir como fantasma en el frame ' + salio );
+  assert.ok( window.GAME.isFrightened( game ), 'el resto del frightened sigue vivo' );
+  // Y ya vuelve a ser un fantasma normal: ni asustado ni ojos.
+  assert.strictEqual( g.mode, 'active', 'blinky vuelve a la normalidad' );
+} );
+
+test( 'comerse fantasmas no gasta el frightened ni renueva el reloj', () => {
+  const game = asustados( newGame() );
+  runFrames( game, 10 );
+  const reloj = game.frightUntilFrame;
+  const frames = game.frames;
+
+  come( game, game.ghosts[ 0 ] );
+
+  assert.strictEqual( game.frightUntilFrame, reloj, 'el reloj sigue donde estaba' );
+  assert.strictEqual( game.frames, frames + 1, 'solo gasto el frame del update' );
+  assert.ok( window.GAME.isFrightened( game ), 'los demas siguen asustados' );
+  for ( let i = 1; i < 4; i++ ) {
+    assert.strictEqual( game.ghosts[ i ].mode, 'frightened', game.ghosts[ i ].kind + ' sigue asustado' );
+  }
 } );

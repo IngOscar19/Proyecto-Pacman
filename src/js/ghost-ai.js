@@ -42,6 +42,14 @@
     return best;
   }
 
+  // Destino de los ojos: la celda de dentro de la puerta del pen, no la puerta.
+  // Si apuntaran a la propia puerta, al pisarla la darian por el lado bueno y se
+  // quedarian dando vueltas fuera del pen sin llegar a bajar nunca.
+  function penEntrance( self ) {
+    const door = nearestPenDoor( self );
+    return { x: door.x, y: door.y + 1 };
+  }
+
   function insidePen( p ) {
     const pen = maze.PEN;
     return p.x >= pen.x0 && p.x <= pen.x1 && p.y >= pen.y0 && p.y <= pen.y1;
@@ -60,7 +68,8 @@
   // solo tienen un destino: la puerta del pen.
   function computeTarget( kind, ctx ) {
     const { self, pacman, blinky } = ctx;
-    if ( ctx.mode === 'eaten' || ctx.mode === 'pen' || insidePen( self ) || atPenMouth( self ) ) {
+    if ( ctx.mode === 'eaten' ) return penEntrance( self );
+    if ( ctx.mode === 'pen' || insidePen( self ) || atPenMouth( self ) ) {
       return nearestPenDoor( self );
     }
 

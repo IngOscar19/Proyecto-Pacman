@@ -10,13 +10,14 @@
   const maze = isNode ? require( './maze.js' ) : ( window.MAZE_DATA || window );
 
   const { aligned, canMove, wrapTunnel, step } = grid;
-  const { chooseDirection } = ghostAi;
+  const { chooseDirection, insidePen } = ghostAi;
   const { MAZE, PACMAN_START, GHOST_STARTS, FRIGHT_FRAMES, FRIGHT_CHAIN } = maze;
 
   const PACMAN_SPEED = 0.125; // 1/8 celda/frame -> alinea cada 8 frames
   const GHOST_SPEED = 0.1;    // 1/10 celda/frame
   const BLINKY_SPEED = 0.11;  // un poco mas rapido: es el perseguidor
   const FRIGHT_SPEED = 0.05;  // asustado: la mitad de velocidad
+  const EYES_SPEED = 0.16;    // solo ojos de vuelta al pen: con prisa
   const BOB = 0.4;            // amplitud de la oscilacion dentro del pen
 
   function ghostSpeed( kind ) {
@@ -26,7 +27,9 @@
   // La velocidad depende solo del modo, nunca se guarda en el fantasma: asi no
   // puede quedar desincronizada cuando el frightened expira.
   function speedOf( g ) {
-    return g.mode === 'frightened' ? FRIGHT_SPEED : ghostSpeed( g.kind );
+    if ( g.mode === 'frightened' ) return FRIGHT_SPEED;
+    if ( g.mode === 'eaten' ) return EYES_SPEED;
+    return ghostSpeed( g.kind );
   }
 
   // Fila del pen que le corresponde a cada fantasma (todos arrancan en la 14).
@@ -195,7 +198,16 @@ function releaseGhost( g ) {
   g.dir = 'up';
 }
 
-function updateGhost( game, g ) {
+// Pacman se come un fantasma asustado: puntua segun la cadena y el fantasma se
+  // queda solo con los ojos, de camino al pen.
+  function eatGhost( game, g ) {
+    game.score += game.frightScore;
+    game.frightScore = Math.min( game.frightScore * 2, FRIGHT_CHAIN[ FRIGHT_CHAIN.length - 1 ] );
+    g.mode = 'eaten';
+    g.didReverse = false;
+  }
+
+  function updateGhost( game, g ) {
   if ( g.mode === 'pen' ) {
     if ( game.frames >= g.releaseAtFrame ) releaseGhost( g );
       else {
@@ -204,6 +216,9 @@ function updateGhost( game, g ) {
       }
     }
     moveGhost( game, g );
+    // Los ojos ya han llegado al pen: vuelven a ser un fantasma normal. Como su
+    // turno de salida paso hace rato, releaseGhost lo saca en el siguiente frame.
+    if ( g.mode === 'eaten' && insidePen( g ) ) g.mode = 'pen';
   }
 
   function moveGhost( game, g ) {
@@ -256,21 +271,27 @@ function updateGhost( game, g ) {
     game.ghosts.forEach( ( g ) => updateGhost( game, g ) );
 
     for ( const g of game.ghosts ) {
-      if ( collides( game.pacman, g ) ) {
-        game.lives--;
-        if ( game.lives <= 0 ) {
-          game.state = 'lost';
-          return;
-        }
-        resetPositions( game );
+      if ( !collides( game.pacman, g ) ) continue;
+      // Los ojos de un fantasma ya comido no hacen dano: siguen de camino al pen.
+      if ( g.mode === 'eaten' ) continue;
+      // Asustado: Pacman se lo come y la cadena de puntos sube.
+      if ( g.mode === 'frightened' ) {
+        eatGhost( game, g );
         break;
       }
+      game.lives--;
+      if ( game.lives <= 0 ) {
+        game.state = 'lost';
+        return;
+      }
+      resetPositions( game );
+      break;
     }
 
     if ( game.dotsRemaining <= 0 ) game.state = 'won';
   }
 
-  const api = { createGame, update, resetPositions, movePacman, updateGhost, moveGhost, decideGhost, bobGhost, releaseGhost, collides, isFrightened, speedOf };
+  const api = { createGame, update, resetPositions, movePacman, updateGhost, moveGhost, decideGhost, bobGhost, releaseGhost, eatGhost, eatPellet, collides, isFrightened, speedOf };
 
   if ( typeof window !== 'undefined' ) {
     window.createGame = createGame;
