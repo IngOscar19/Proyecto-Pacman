@@ -1,6 +1,6 @@
 # SPEC 02 — Power pellets
 
-> **Status:** Approved
+> **Status:** Implemented
 > **Depends on:** SPEC 01
 > **Date:** 2026-10-05
 > **Objective:** Cuatro power pellets que al ser comidas ponen a los cuatro fantasmas en modo asustado —azules, más lentos y moviéndose al azar— para que Pacman pueda comérselos.
@@ -79,25 +79,25 @@ Convención nueva: el rng se pasa como `ctx.rng` a `chooseDirection` y vale `Mat
 
 ## Acceptance criteria
 
-- [ ] `node --test` termina con 0 tests fallidos.
-- [ ] `src/index.html` carga sin errores en la consola.
-- [ ] `MAZE` conserva 31 filas de 28 columnas, con 276 tiles de tipo 2 y 4 de tipo 4: 280 celdas comibles, las mismas que en SPEC 01.
-- [ ] Hay exactamente 4 tiles de tipo 4 y están en (1,6), (26,6), (1,26) y (26,26).
-- [ ] `POWER_PELLETS` coincide con las celdas de tipo 4 del laberinto.
-- [ ] Comer una pellet suma 50, deja la celda en 0 y fija `frightUntilFrame = frames + FRIGHT_FRAMES`.
-- [ ] Comer una pellet asusta solo a los fantasmas con `mode === 'active'`; los del pen siguen en `pen`.
-- [ ] Un fantasma `frightened` se mueve a 0.05 celdas/frame y uno `eaten` a 0.16.
-- [ ] Con `rng` inyectado, un `frightened` elige siempre una dirección legal distinta de la inversa y dos llamadas seguidas dan la misma.
-- [ ] Un `frightened` solo se invierte cuando no hay ninguna otra salida legal, y en ese caso marca `didReverse`; el flag se limpia al comer una pellet nueva y al expirar el frightened.
-- [ ] Pasados `FRIGHT_FRAMES` desde la última pellet, todos vuelven a `active` y `frightScore` vuelve a 200.
-- [ ] Comer una segunda pellet renueva el timer y reinicia la cadena en 200.
-- [ ] Los 4 fantasmas comidos en la misma fase suman 200, 400, 800 y 1600; el quinto y siguientes siguen en 1600.
-- [ ] Un fantasma comido queda `eaten`, se dibuja solo con ojos y no le quita vida a Pacman.
-- [ ] Un `eaten` se dirige a la puerta del pen, entra y vuelve a salir como `active`.
-- [ ] Un fantasma `active` que toca a Pacman le quita una vida y reinicia `frightUntilFrame`.
-- [ ] La victoria sigue exigiendo vaciar los dots de tipo 2 (275 al empezar, porque la celda de inicio de Pacman ya está vacía; las pellets no cuentan).
-- [ ] `resetPositions` devuelve a los 4 fantasmas a `pen` y limpia `frightUntilFrame` y `frightScore`.
-- [ ] El laberinto parpadea en blanco/azul mientras dure el frightened y los asustados en blanco en los últimos `FRIGHT_FLASH_FRAMES`.
+- [x] `node --test` termina con 0 tests fallidos.
+- [x] `src/index.html` carga sin errores en la consola.
+- [x] `MAZE` conserva 31 filas de 28 columnas, con 276 tiles de tipo 2 y 4 de tipo 4: 280 celdas comibles, las mismas que en SPEC 01.
+- [x] Hay exactamente 4 tiles de tipo 4 y están en (1,6), (26,6), (1,26) y (26,26).
+- [x] `POWER_PELLETS` coincide con las celdas de tipo 4 del laberinto.
+- [x] Comer una pellet suma 50, deja la celda en 0 y fija `frightUntilFrame = frames + FRIGHT_FRAMES`.
+- [x] Comer una pellet asusta solo a los fantasmas con `mode === 'active'`; los del pen siguen en `pen`.
+- [x] Un fantasma `frightened` se mueve a 0.05 celdas/frame y uno `eaten` a 0.16.
+- [x] Con `rng` inyectado, un `frightened` elige siempre una dirección legal distinta de la inversa y dos llamadas seguidas dan la misma.
+- [x] Un `frightened` solo se invierte cuando no hay ninguna otra salida legal, y en ese caso marca `didReverse`; el flag se limpia al comer una pellet nueva y al expirar el frightened.
+- [x] Pasados `FRIGHT_FRAMES` desde la última pellet, todos vuelven a `active` y `frightScore` vuelve a 200.
+- [x] Comer una segunda pellet renueva el timer y reinicia la cadena en 200.
+- [x] Los 4 fantasmas comidos en la misma fase suman 200, 400, 800 y 1600; el quinto y siguientes siguen en 1600.
+- [x] Un fantasma comido queda `eaten`, se dibuja solo con ojos y no le quita vida a Pacman.
+- [x] Un `eaten` se dirige a la puerta del pen, entra y vuelve a salir como `active`.
+- [x] Un fantasma `active` que toca a Pacman le quita una vida y reinicia `frightUntilFrame`.
+- [x] La victoria sigue exigiendo vaciar los dots de tipo 2 (275 al empezar, porque la celda de inicio de Pacman ya está vacía; las pellets no cuentan).
+- [x] `resetPositions` devuelve a los 4 fantasmas a `pen` y limpia `frightUntilFrame` y `frightScore`.
+- [x] El laberinto parpadea en blanco/azul mientras dure el frightened y los asustados en blanco en los últimos `FRIGHT_FLASH_FRAMES`.
 
 ## Decisions
 
