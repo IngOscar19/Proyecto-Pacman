@@ -275,6 +275,30 @@ test( 'morir limpia el frightened y la cadena', () => {
   assert.ok( !window.GAME.isFrightened( game ), 'el modo asustado se apaga' );
   for ( const g of game.ghosts ) assert.strictEqual( g.mode, 'pen', g.kind + ' vuelve al pen' );
 } );
+
+test( 'ganar sigue exigiendo vaciar los 275 dots: las pellets no cuentan', () => {
+  const game = newGame();
+  // 276 dots en el laberinto menos el de la celda donde arranca Pacman.
+  assert.strictEqual( game.dotsRemaining, 275, '275 dots por comer' );
+
+  // Las cuatro pellets dan puntos pero no acercan la victoria.
+  for ( const p of POWER_PELLETS ) pelletAt( game, p.x, p.y );
+  assert.strictEqual( game.dotsRemaining, 275, 'las pellets no bajan el contador' );
+  assert.strictEqual( game.score, 200, 'solo los 50 de cada pellet' );
+  assert.notStrictEqual( game.state, 'won', 'con los dots intactos no se gana' );
+
+  // Al comerse el ultimo dot si gana.
+  for ( let y = 0; y < game.grid.length; y++ ) {
+    for ( let x = 0; x < game.grid[ 0 ].length; x++ ) {
+      if ( game.grid[ y ][ x ] !== 2 ) continue;
+      teleport( game, x, y );
+      window.GAME.movePacman( game );
+    }
+  }
+  assert.strictEqual( game.dotsRemaining, 0, 'no queda ningun dot' );
+  window.update( game );
+  assert.strictEqual( game.state, 'won', 'victoria al vaciar los dots' );
+} );
 // --- Paso 4: el asustado se mueve al azar ---
 
 // Sorteo fijo: siempre el mismo numero, para que el test sea reproducible.
