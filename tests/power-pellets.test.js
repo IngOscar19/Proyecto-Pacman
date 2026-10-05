@@ -12,6 +12,7 @@ const maze = require( '../src/js/maze.js' );
 require( '../src/js/grid.js' );
 require( '../src/js/ghost-ai.js' );
 require( '../src/js/game.js' );
+require( '../src/js/render.js' );
 const ai = window.GHOST_AI;
 
 const { MAZE, PEN, PEN_DOORS, POWER_PELLETS, FRIGHT_FRAMES, FRIGHT_FLASH_FRAMES, FRIGHT_CHAIN, FPS } = maze;
@@ -546,5 +547,117 @@ test( 'comerse fantasmas no gasta el frightened ni renueva el reloj', () => {
   assert.ok( window.GAME.isFrightened( game ), 'los demas siguen asustados' );
   for ( let i = 1; i < 4; i++ ) {
     assert.strictEqual( game.ghosts[ i ].mode, 'frightened', game.ghosts[ i ].kind + ' sigue asustado' );
+  }
+} );
+
+// --- Paso 6: el frightened se ve ---
+
+// Contexto de canvas falso: guarda los colores con los que se pinta cada figura.
+function render( game, frame ) {
+  const ops = [];
+  const ctx = {
+    fillStyle: '',
+    strokeStyle: '',
+    canvas: { width: 560, height: 620 },
+    fillRect() {},
+    fillText() {},
+  };
+  for ( const name of [ 'beginPath', 'arc', 'fill', 'stroke', 'moveTo', 'lineTo', 'closePath' ] ) {
+    ctx[ name ] = () => ops.push( { name, fillStyle: ctx.fillStyle, strokeStyle: ctx.strokeStyle } );
+  }
+  window.draw( ctx, game, frame );
+  return ops;
+}
+
+// atajo legible: algo en la lista cumple el predicado
+function usa( ops, pred ) {
+  return ops.some( pred );
+}
+
+// Quita dots y pellets del laberinto: se pintan con colores propios (las pellets
+// ademas parpadean en blanco) y se confunden con lo que dibuja el fantasma.
+function limpiaComibles( game ) {
+  for ( let y = 0; y < game.grid.length; y++ ) {
+    for ( let x = 0; x < game.grid[ 0 ].length; x++ ) {
+      if ( game.grid[ y ][ x ] === 2 || game.grid[ y ][ x ] === 4 ) game.grid[ y ][ x ] = 0;
+    }
+  }
+}
+
+function soloUnFantasma( game, mode ) {
+  game.ghosts = [ game.ghosts[ 0 ] ];
+  game.ghosts[ 0 ].mode = mode;
+  game.ghosts[ 0 ].x = 13;
+  game.ghosts[ 0 ].y = 11;
+  limpiaComibles( game );
+}
+
+test( 'el laberinto parpadea en blanco mientras hay frightened', () => {
+  const game = asustados( newGame() );
+
+  // Con frightened: un frame de cada dos las paredes salen blancas.
+  assert.ok( usa( render( game, 10 ), ( o ) => o.name === 'stroke' && o.strokeStyle === '#ffffff' ), 'parpadeo blanco' );
+  assert.ok( usa( render( game, 0 ), ( o ) => o.name === 'stroke' && o.strokeStyle === '#2121ff' ), 'y azul' );
+
+  // Sin frightened las paredes nunca parpadean.
+  const limpio = newGame();
+  for ( let f = 0; f < 40; f += 10 ) {
+    assert.ok( !usa( render( limpio, f ), ( o ) => o.name === 'stroke' && o.strokeStyle === '#ffffff' ), 'tranquilo en el frame ' + f );
+  }
+} );
+
+test( 'el asustado se pinta azul y con la boca abierta', () => {
+  const game = asustados( newGame() );
+  soloUnFantasma( game, 'frightened' );
+  const ops = render( game, 0 );
+
+  assert.ok( usa( ops, ( o ) => o.name === 'fill' && o.fillStyle === '#2121ff' ), 'cuerpo azul' );
+  assert.ok( usa( ops, ( o ) => o.name === 'stroke' && o.strokeStyle === '#ffffff' ), 'boca abierta en zigzag' );
+} );
+
+test( 'los asustados se vuelven blancos en los ultimos 2 segundos', () => {
+  const game = asustados( newGame() );
+  soloUnFantasma( game, 'frightened' );
+
+  // A mitad del frightened sigue azul, no blanco.
+  game.frightUntilFrame = game.frames + FRIGHT_FRAMES;
+  assert.ok( !usa( render( game, 10 ), ( o ) => o.name === 'fill' && o.fillStyle === '#ffffff' ), 'a mitad no parpadea en blanco' );
+
+  // En el ultimo segundo y medio, uno de cada dos frames va blanco.
+  game.frightUntilFrame = game.frames + FRIGHT_FLASH_FRAMES - 1;
+  assert.ok( usa( render( game, 10 ), ( o ) => o.name === 'fill' && o.fillStyle === '#ffffff' ), 'blanco en el frame parpadeante' );
+  assert.ok( !usa( render( game, 0 ), ( o ) => o.name === 'fill' && o.fillStyle === '#ffffff' ), 'y azul en el otro' );
+} );
+
+test( 'un fantasma comido se dibuja solo con los ojos', () => {
+  const game = asustados( newGame() );
+  soloUnFantasma( game, 'eaten' );
+  const ops = render( game, 0 );
+
+  // Solo los dos ojos (blancos con pupila azul) y el Pacman de siempre: ni
+  // cuerpo ni boca.
+  const pintadas = ops.filter( ( o ) => o.name === 'fill' );
+  assert.ok( pintadas.length > 0, 'dibujo algo' );
+  for ( const o of pintadas ) {
+    assert.ok(
+      o.fillStyle === '#fff' || o.fillStyle === '#0000bb' || o.fillStyle === '#ffff00',
+      'pinto algo que no son ojos: ' + o.fillStyle
+    );
+  }
+  assert.ok( !usa( ops, ( o ) => o.name === 'fill' && o.fillStyle === '#ff0000' ), 'ni cuerpo de su color' );
+  assert.ok( !usa( ops, ( o ) => o.name === 'fill' && o.fillStyle === '#2121ff' ), 'ni cuerpo de asustado' );
+  // Exactamente dos ojos blancos con su pupila azul, y nada mas.
+  const blancos = ops.filter( ( o ) => o.name === 'fill' && o.fillStyle === '#fff' );
+  const pupilas = ops.filter( ( o ) => o.name === 'fill' && o.fillStyle === '#0000bb' );
+  assert.strictEqual( blancos.length, 2, 'dos ojos' );
+  assert.strictEqual( pupilas.length, 2, 'dos pupilas' );
+} );
+
+test( 'sin frightened los cuatro fantasmas siguen con su color', () => {
+  const game = newGame();
+  limpiaComibles( game );
+  const ops = render( game, 10 );
+  for ( const color of [ '#ff0000', '#00ffff', '#ffb8ff', '#ffb852' ] ) {
+    assert.ok( usa( ops, ( o ) => o.name === 'fill' && o.fillStyle === color ), 'falta el color ' + color );
   }
 } );

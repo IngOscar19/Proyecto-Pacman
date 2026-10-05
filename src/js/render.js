@@ -5,13 +5,18 @@
 (function () {
   const isNode = typeof module !== 'undefined' && typeof module.exports !== 'undefined';
   const grid = isNode ? require( './grid.js' ) : window.GRID;
+  const maze = isNode ? require( './maze.js' ) : ( window.MAZE_DATA || window );
+  const game = isNode ? require( './game.js' ) : window.GAME;
   const { DIRS } = grid;
+  const { FRIGHT_FLASH_FRAMES } = maze;
+  const { isFrightened } = game;
 
   const TILE = 20;
   const WALL_COLOR = '#2121ff';
   const DOOR_COLOR = '#ffb8ff';
   const DOT_COLOR = '#ffb897';
   const FLASH_COLOR = '#ffffff';
+  const FRIGHT_COLOR = '#2121ff';
   const PELLET_RADIUS = 5;
 
   function cellCenter( x, y ) {
@@ -20,10 +25,24 @@
 
   // Paredes estilo arcade: lineas finas redondeadas que conectan los centros
   // de celdas-pared adyacentes. Produce el trazado continuo del original.
-  function drawWalls( ctx, gGrid ) {
+  // Cada medio segundo se invierte el estado del parpadeo: sirve tanto para el
+  // laberinto como para el blanco de los asustados del final.
+  function blink( frame ) {
+    return Math.floor( frame / 10 ) % 2 === 1;
+  }
+
+  // Mientras queda frightened el laberinto parpadea en blanco y azul, como en el
+  // arcade. El blanco se aplica solo a las paredes: Pacman y los fantasmas se
+  // mantienen nitidos.
+  function wallColor( game, frame ) {
+    if ( !isFrightened( game ) ) return WALL_COLOR;
+    return blink( frame ) ? FLASH_COLOR : WALL_COLOR;
+  }
+
+  function drawWalls( ctx, gGrid, color ) {
     const H = gGrid.length;
     const W = gGrid[ 0 ].length;
-    ctx.strokeStyle = WALL_COLOR;
+    ctx.strokeStyle = color;
     ctx.lineWidth = 2.5;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -77,13 +96,13 @@
   // Las power pellets (tile 4) son el mismo punto de color que los dots pero mas
   // grandes, y parpadean en blanco mientras el laberinto esta tranquilo.
   function drawDots( ctx, gGrid, frame ) {
-    const blink = Math.floor( frame / 10 ) % 2 === 1;
+    const blinkOn = blink( frame );
     for ( let y = 0; y < gGrid.length; y++ ) {
       for ( let x = 0; x < gGrid[ 0 ].length; x++ ) {
         const v = gGrid[ y ][ x ];
         if ( v !== 2 && v !== 4 ) continue;
         const pellet = v === 4;
-        ctx.fillStyle = pellet && blink ? FLASH_COLOR : DOT_COLOR;
+        ctx.fillStyle = pellet && blinkOn ? FLASH_COLOR : DOT_COLOR;
         const { cx, cy } = cellCenter( x, y );
         ctx.beginPath();
         ctx.arc( cx, cy, pellet ? PELLET_RADIUS : 2.5, 0, Math.PI * 2 );
@@ -111,10 +130,9 @@
     ctx.fill();
   }
 
-  function drawGhost( ctx, g, color ) {
-    const { cx, cy } = cellCenter( g.x, g.y );
-    const r = TILE / 2 - 1;
-    const top = cy - r;
+  // Cuerpo del fantasma: se dibuja con el color que le toque. Un fantasma comido
+  // ('eaten') no tiene cuerpo, solo los ojos de camino al pen.
+  function drawGhostBody( ctx, cx, cy, r, color ) {
     const bottom = cy + r;
     const left = cx - r;
     const right = cx + r;
@@ -130,8 +148,22 @@
     ctx.lineTo( left, bottom );
     ctx.closePath();
     ctx.fill();
+  }
 
-    // ojos mirando segun direccion
+  // Boca del asustado: el zigzag blanco del original.
+  function drawFrightenedMouth( ctx, cx, cy ) {
+    ctx.strokeStyle = FLASH_COLOR;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo( cx - 5, cy + 3 );
+    ctx.lineTo( cx - 2.5, cy + 1 );
+    ctx.lineTo( cx, cy + 3 );
+    ctx.lineTo( cx + 2.5, cy + 1 );
+    ctx.lineTo( cx + 5, cy + 3 );
+    ctx.stroke();
+  }
+
+  function drawGhostEyes( ctx, g, cx, cy ) {
     const dir = DIRS[ g.dir ] || { x: 0, y: 0 };
     const ex = dir.x * 1.6;
     const ey = dir.y * 1.6;
@@ -145,6 +177,29 @@
       ctx.arc( cx + off + ex, cy - 1 + ey, 1.5, 0, Math.PI * 2 );
       ctx.fill();
     }
+  }
+
+  // Azul mientras queda frightened, blanco parpadeando en los ultimos
+  // FRIGHT_FLASH_FRAMES: el aviso de que se acaba.
+  function frightColor( game, frame ) {
+    const restante = game.frightUntilFrame - game.frames;
+    const parpadea = restante <= FRIGHT_FLASH_FRAMES && blink( frame );
+    return parpadea ? FLASH_COLOR : FRIGHT_COLOR;
+  }
+
+  function drawGhost( ctx, g, color, game, frame ) {
+    const { cx, cy } = cellCenter( g.x, g.y );
+    const r = TILE / 2 - 1;
+
+    if ( g.mode === 'eaten' ) {
+      drawGhostEyes( ctx, g, cx, cy );
+      return;
+    }
+
+    const asustado = g.mode === 'frightened';
+    drawGhostBody( ctx, cx, cy, r, asustado ? frightColor( game, frame ) : color );
+    if ( asustado ) drawFrightenedMouth( ctx, cx, cy );
+    drawGhostEyes( ctx, g, cx, cy );
   }
 
   function drawHUD( ctx, game, W ) {
@@ -167,11 +222,11 @@
     ctx.fillStyle = '#000';
     ctx.fillRect( 0, 0, W * TILE, H * TILE );
 
-    drawWalls( ctx, gGrid );
+    drawWalls( ctx, gGrid, wallColor( game, frame ) );
     drawDoor( ctx, gGrid );
     drawDots( ctx, gGrid, frame );
     drawPacman( ctx, game.pacman, frame );
-    game.ghosts.forEach( ( g, i ) => drawGhost( ctx, g, GHOST_COLORS[ i ] || '#ff0000' ) );
+    game.ghosts.forEach( ( g, i ) => drawGhost( ctx, g, GHOST_COLORS[ i ] || '#ff0000', game, frame ) );
     drawHUD( ctx, game, W );
   }
 
