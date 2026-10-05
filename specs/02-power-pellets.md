@@ -51,7 +51,7 @@ rng: Math.random,     // inyectable para que los tests sean deterministas
 
 // src/js/game.js — por fantasma
 mode: 'pen' | 'active' | 'frightened' | 'eaten',
-didReverse: false,    // como maximo una inversion forzada por periodo asustado
+didReverse: false,    // registro del giro forzado (sin ninguna otra salida legal)
 ```
 
 Velocidades: `FRIGHT_SPEED = 0.05`, `EYES_SPEED = 0.16`. Ninguna se guarda en `g.speed`: la resuelve `speedOf( g )` a partir de `g.mode`, para que no pueda quedar desincronizada.
@@ -59,7 +59,7 @@ Velocidades: `FRIGHT_SPEED = 0.05`, `EYES_SPEED = 0.16`. Ninguna se guarda en `g
 Reglas de `mode`:
 
 - `pen`: oscila y espera su `releaseAtFrame` (SPEC 01, sin cambios).
-- `frightened`: objetivo aleatorio entre direcciones legales salvo la inversa; `didReverse` limita a una la inversión cuando la inversa es la única salida.
+- `frightened`: dirección aleatoria entre las legales salvo la inversa; si la inversa es la única salida, la toma y marca `didReverse`.
 - `eaten`: objetivo = puerta del pen más cercana; al entrar en `PEN` pasa a `pen`, y como su `releaseAtFrame` ya pasó, `releaseGhost` lo saca en el frame siguiente.
 - Comer una pellet solo afecta a los fantasmas con `mode === 'active'`.
 - Comer una pellet renueva `frightUntilFrame` y pone `frightScore` a 200.
@@ -88,7 +88,7 @@ Convención nueva: el rng se pasa como `ctx.rng` a `chooseDirection` y vale `Mat
 - [ ] Comer una pellet asusta solo a los fantasmas con `mode === 'active'`; los del pen siguen en `pen`.
 - [ ] Un fantasma `frightened` se mueve a 0.05 celdas/frame y uno `eaten` a 0.16.
 - [ ] Con `rng` inyectado, un `frightened` elige siempre una dirección legal distinta de la inversa y dos llamadas seguidas dan la misma.
-- [ ] Un `frightened` puede invertirse como mucho una vez por periodo (`didReverse`).
+- [ ] Un `frightened` solo se invierte cuando no hay ninguna otra salida legal, y en ese caso marca `didReverse`; el flag se limpia al comer una pellet nueva y al expirar el frightened.
 - [ ] Pasados `FRIGHT_FRAMES` desde la última pellet, todos vuelven a `active` y `frightScore` vuelve a 200.
 - [ ] Comer una segunda pellet renueva el timer y reinicia la cadena en 200.
 - [ ] Los 4 fantasmas comidos en la misma fase suman 200, 400, 800 y 1600; el quinto y siguientes siguen en 1600.
@@ -110,7 +110,7 @@ Convención nueva: el rng se pasa como `ctx.rng` a `chooseDirection` y vale `Mat
 - **No:** frightened decreciente ya. No hay niveles, y un valor que no se pueda observar no aporta.
 - **Yes:** `rng` inyectado en `ctx` y en `game`. Los tests de este spec necesitan aleatoriedad reproducible; sin esto, `node --test` sería inestable.
 - **No:** frightened con la personalidad intacta. Hace que "asustado" no se note y deja el `didReverse` sin sentido.
-- **Yes:** inversión limitada a una por periodo (`didReverse`). Es la regla del original y evita que un asustado gire infinitamente.
+- **Yes:** `didReverse` como registro del giro forzado, no como bloqueo. En el original un asustado solo puede invertirse una vez por periodo, pero este laberinto es completamente cíclico y no tiene ni un callejón, asi que la regla no se puede observar: queda como marca que se limpia en cada cambio de periodo.
 - **No:** aceleración por cercanía, frightened creciente al comer fantasmas, ni modo "comiendo" con pausa. Cada uno es otro spec.
 - **Yes:** velocidad derivada del `mode` con `speedOf(g)` en vez de mutar `g.speed`. Un resto de velocidad desincronizada al expirar el timer sería un bug difícil de ver.
 - **Yes:** la elección de dirección asustada y los objetivos `eaten`/`frightened` van en `ghost-ai.js`, no en un `fright.js` nuevo. `ghost-ai.js` ya es el sitio donde se decide la dirección; no se crea ningún módulo nuevo.
@@ -124,7 +124,7 @@ Convención nueva: el rng se pasa como `ctx.rng` a `chooseDirection` y vale `Mat
 | Comer una pellet asusta también a los fantasmas que bobbean en el pen | La conversión exige `mode === 'active'`; los del pen conservan su `releaseAtFrame`. |
 | Los ojos no consiguen volver al pen y se quedan dando vueltas | `computeTarget` les devuelve la puerta más cercana y al entrar en `PEN` pasan a `pen`, cuyo `releaseAtFrame` ya venció: salen en el frame siguiente. |
 | `ctx.rng` rompe los tests de SPEC 01 | Las cuatro IAs no leen `rng`; el default `Math.random` solo lo consumen los `frightened`. |
-| Un fantasma asustado se queda atascado vibrando contra un muro | `chooseDirection` restringe a direcciones legales y, si no queda ninguna, invierte una sola vez y lo registra en `didReverse`. |
+| Un fantasma asustado se queda atascado vibrando contra un muro | `chooseDirection` solo devuelve direcciones legales y, si no queda ninguna, devuelve la inversa. |
 | Expirar el frightened deja velocidad o color a medias | `speedOf(g)` y el color se derivan de `g.mode` en cada frame; no hay estado que limpiar. |
 | Las filas 6 y 26 del laberinto cambian de largo al poner `'o'` | Test que comprueba 28 columnas y 276 + 4 tiles en el mismo arranque. |
 

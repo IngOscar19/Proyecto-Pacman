@@ -58,6 +58,9 @@
       frightUntilFrame: 0,
       // Puntos que vale el siguiente fantasma comido (200, 400, 800, 1600).
       frightScore: FRIGHT_CHAIN[ 0 ],
+      // Sorteo de direccion de los asustados. Se guarda en la partida para que
+      // los tests puedan sustituirlo por uno reproducible.
+      rng: Math.random,
       grid: gameGrid,
       pacman: {
         x: PACMAN_START.x,
@@ -161,6 +164,7 @@ function eatPellet( game ) {
       pacman: game.pacman,
       blinky: blinky || g,
       mode: g.mode,
+      rng: game.rng,
     } );
   }
 

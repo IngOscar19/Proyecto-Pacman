@@ -1,7 +1,8 @@
 // ghost-ai.js
 // IA de los cuatro fantasmas. Funciones puras: reciben el contexto y
-// devuelven un objetivo o una direccion, sin mutar nada.
-//   ctx = { grid, self, pacman, blinky, mode }
+// devuelven un objetivo o una direccion. La unica excepcion es la eleccion
+// asustada, que anota el giro forzado en self.didReverse (regla del original).
+//   ctx = { grid, self, pacman, blinky, mode, rng }
 // `self` debe venir alineado a una celda entera (lo normaliza decideGhost).
 // Dual export como grid.js, para que node --test pueda require('./ghost-ai.js').
 
@@ -55,10 +56,13 @@
 
   // Objetivo de cada personalidad. Dentro del pen manda la salida, sea cual sea
   // el kind: primero mientras espera (mode 'pen') y despues ya liberado pero sin
-  // haber conseguido salir todavia.
+  // haber conseguido salir todavia. Los ojos de un fantasma comido (mode 'eaten')
+  // solo tienen un destino: la puerta del pen.
   function computeTarget( kind, ctx ) {
     const { self, pacman, blinky } = ctx;
-    if ( ctx.mode === 'pen' || insidePen( self ) || atPenMouth( self ) ) return nearestPenDoor( self );
+    if ( ctx.mode === 'eaten' || ctx.mode === 'pen' || insidePen( self ) || atPenMouth( self ) ) {
+      return nearestPenDoor( self );
+    }
 
     const pac = { x: Math.round( pacman.x ), y: Math.round( pacman.y ) };
     const ahead4 = aheadOf( pacman, 4 );
@@ -90,16 +94,42 @@
     }
   }
 
+  // Direcciones legales del fantasma: las del pasillo, en el orden de preferencia
+  // y sin la inversa (giro de 180).
+  function legalDirs( ctx ) {
+    const { self } = ctx;
+    const reverse = OPPOSITE[ self.dir ];
+    return DIR_PRIORITY.filter(
+      ( dir ) => dir !== reverse && canMove( ctx.grid, self.x, self.y, dir, 'ghost' )
+    );
+  }
+
+  // Modo asustado: no hay objetivo, se tira los dados entre las legales. Es lo que
+  // hace el original y es lo que permite a Pacman cruzarse por delante. Si la
+  // unica salida es dar la vuelta, da la vuelta y lo anota en didReverse.
+  function chooseFrightenedDirection( ctx ) {
+    const { self } = ctx;
+    const reverse = OPPOSITE[ self.dir ];
+    const legal = legalDirs( ctx );
+    if ( !legal.length ) {
+      self.didReverse = true;
+      return reverse;
+    }
+    const rng = ctx.rng || Math.random;
+    const i = Math.min( legal.length - 1, Math.floor( rng() * legal.length ) );
+    return legal[ i ];
+  }
+
   // Direccion legal que mas acerca al objetivo (distancia Manhattan).
   function chooseDirection( ctx ) {
     const { self } = ctx;
+    if ( ctx.mode === 'frightened' ) return chooseFrightenedDirection( ctx );
+
     const target = computeTarget( self.kind, ctx );
     const reverse = OPPOSITE[ self.dir ];
 
     // Se descarta el giro de 180 salvo que sea la unica salida (callejon).
-    const legal = DIR_PRIORITY.filter(
-      ( dir ) => dir !== reverse && canMove( ctx.grid, self.x, self.y, dir, 'ghost' )
-    );
+    const legal = legalDirs( ctx );
     const options = legal.length ? legal : [ reverse ];
 
     // DIR_PRIORITY fija el orden de las opciones y la comparacion es estricta,
@@ -117,7 +147,7 @@
     return best;
   }
 
-  const api = { aheadOf, computeTarget, chooseDirection };
+  const api = { aheadOf, computeTarget, chooseDirection, insidePen };
 
   if ( typeof window !== 'undefined' ) window.GHOST_AI = api;
   if ( isNode ) module.exports = api;

@@ -12,8 +12,11 @@ const maze = require( '../src/js/maze.js' );
 require( '../src/js/grid.js' );
 require( '../src/js/ghost-ai.js' );
 require( '../src/js/game.js' );
+const ai = window.GHOST_AI;
 
-const { MAZE, PEN, POWER_PELLETS, FRIGHT_FRAMES, FRIGHT_FLASH_FRAMES, FRIGHT_CHAIN, FPS } = maze;
+const { MAZE, PEN, PEN_DOORS, POWER_PELLETS, FRIGHT_FRAMES, FRIGHT_FLASH_FRAMES, FRIGHT_CHAIN, FPS } = maze;
+const { chooseDirection, computeTarget, insidePen } = ai;
+const { DIRS, OPPOSITE, canMove } = window.GRID;
 
 function newGame() {
   return window.createGame();
@@ -91,7 +94,6 @@ test( 'las power pellets estan sobre celdas transitables y no en el pen', () => 
     assert.ok( !dentro, 'no esta dentro del pen' );
     // Transitable de verdad: se puede llegar andando desde algun lado. En las
     // filas 6 y 26 solo se sale en vertical, asi que vale cualquiera.
-    const { DIRS, canMove } = window.GRID;
     const salidas = Object.keys( DIRS ).filter( ( dir ) => canMove( MAZE, p.x, p.y, dir, 'pacman' ) );
     assert.ok( salidas.length > 0, 'hay pasillo en ' + p.x + ',' + p.y );
   }
@@ -271,4 +273,144 @@ test( 'morir limpia el frightened y la cadena', () => {
   assert.strictEqual( game.frightScore, FRIGHT_CHAIN[ 0 ], 'la cadena vuelve a empezar' );
   assert.ok( !window.GAME.isFrightened( game ), 'el modo asustado se apaga' );
   for ( const g of game.ghosts ) assert.strictEqual( g.mode, 'pen', g.kind + ' vuelve al pen' );
+} );
+// --- Paso 4: el asustado se mueve al azar ---
+
+// Sorteo fijo: siempre el mismo numero, para que el test sea reproducible.
+const rngFijo = ( valor ) => () => valor;
+const rngCero = rngFijo( 0 );
+
+function asustado( x, y, dir = 'up', extra ) {
+  return { x, y, dir, kind: 'blinky', mode: 'frightened', didReverse: false, ...extra };
+}
+function ctxAsustado( self, rng ) {
+  return { grid: MAZE, self, pacman: { x: 13, y: 23, dir: 'left' }, blinky: self, mode: 'frightened', rng };
+}
+
+test( 'el asustado elige una direccion legal y nunca la inversa', () => {
+  for ( const valor of [ 0, 0.24, 0.25, 0.49, 0.5, 0.74, 0.75, 0.99 ] ) {
+    for ( const dir of [ 'up', 'left', 'down', 'right' ] ) {
+      const self = asustado( 13, 11, dir );
+      const elegida = chooseDirection( ctxAsustado( self, rngFijo( valor ) ) );
+      assert.ok(
+        canMove( MAZE, self.x, self.y, elegida, 'ghost' ),
+        'eligio una pared desde (13,11) mirando ' + dir + ': ' + elegida
+      );
+      assert.notStrictEqual(
+        elegida,
+        OPPOSITE[ dir ],
+        'se dio la vuelta desde (13,11) mirando ' + dir + ' con rng ' + valor
+      );
+    }
+  }
+} );
+
+test( 'el sorteado elige entre todas las legales segun el rng', () => {
+  // En (13,11) mirando a la izquierda la inversa es 'right', que queda fuera.
+  // Arriba hay pared, asi que las legales son las que se calculan aqui.
+  const legales = [ 'up', 'left', 'down' ].filter( ( d ) => canMove( MAZE, 13, 11, d, 'ghost' ) );
+  assert.deepStrictEqual( legales, [ 'left', 'down' ], 'las legales de (13,11) mirando izquierda' );
+  const vistos = new Set();
+  for ( let i = 0; i < 60; i++ ) {
+    const v = i / 60;
+    vistos.add( chooseDirection( ctxAsustado( asustado( 13, 11, 'left' ), rngSecuencial( v ) ) ) );
+  }
+  for ( const dir of legales ) assert.ok( vistos.has( dir ), 'el rng pudo elegir ' + dir );
+  assert.ok( !vistos.has( 'right' ), 'nunca elige la inversa' );
+  // Con rng = 0 siempre elige la primera legal del orden de preferencia.
+  for ( let i = 0; i < 5; i++ ) {
+    assert.strictEqual( chooseDirection( ctxAsustado( asustado( 13, 11, 'left' ), rngCero ) ), legales[ 0 ] );
+  }
+} );
+
+// rng que siempre devuelve el valor i.
+function rngSecuencial( v ) {
+  return () => v;
+}
+
+test( 'el asustado es reproducible con el mismo rng', () => {
+  const primera = chooseDirection( ctxAsustado( asustado( 9, 17, 'right' ), rngFijo( 0.7 ) ) );
+  for ( let i = 0; i < 5; i++ ) {
+    assert.strictEqual(
+      chooseDirection( ctxAsustado( asustado( 9, 17, 'right' ), rngFijo( 0.7 ) ) ),
+      primera,
+      'mismo rng, misma direccion'
+    );
+  }
+} );
+
+test( 'el asustado solo se invierte cuando no hay ninguna otra salida', () => {
+  // Callejon: un grid sintetico donde solo se puede retroceder.
+  const cerrado = [
+    [ 1, 1, 1 ],
+    [ 1, 0, 1 ],
+    [ 1, 1, 1 ],
+  ];
+  const self = asustado( 1, 1, 'left', { didReverse: false } );
+  const ctx = { grid: cerrado, self, pacman: { x: 9, y: 9, dir: 'left' }, blinky: self, mode: 'frightened', rng: rngCero };
+  assert.strictEqual( chooseDirection( ctx ), 'right', 'sin salida solo puede darse la vuelta' );
+  assert.strictEqual( self.didReverse, true, 'y lo anota' );
+
+  // Con salidas que no son la inversa elige entre ellas y no marca el flag.
+  const conSalida = [
+    [ 1, 0, 1 ],
+    [ 0, 0, 1 ],
+    [ 1, 1, 1 ],
+  ];
+  const self2 = asustado( 1, 1, 'left', { didReverse: false } );
+  const ctx2 = { grid: conSalida, self: self2, pacman: { x: 9, y: 9, dir: 'left' }, blinky: self2, mode: 'frightened', rng: rngCero };
+  assert.strictEqual( chooseDirection( ctx2 ), 'up', 'arriba es legal y no es la inversa' );
+  assert.strictEqual( self2.didReverse, false, 'no marca giro forzado' );
+} );
+
+test( 'didReverse se limpia al comer una pellet nueva y al expirar', () => {
+  const game = newGame();
+  freeGhosts( game );
+  const blinky = game.ghosts[ 0 ];
+  blinky.didReverse = true;
+
+  pelletAt( game, POWER_PELLETS[ 0 ].x, POWER_PELLETS[ 0 ].y );
+  assert.strictEqual( blinky.didReverse, false, 'comer una pellet limpia el flag' );
+  blinky.didReverse = true;
+  runFrames( game, FRIGHT_FRAMES );
+  assert.strictEqual( blinky.didReverse, false, 'y expirar el frightened tambien' );
+} );
+
+test( 'el objetivo de un eaten es la puerta del pen, y dentro del pen tambien', () => {
+  // Lejos del pen: la puerta mas cercana sigue siendo el unico destino.
+  const self = asustado( 6, 20, 'up', { mode: 'eaten' } );
+  const ctx = { grid: MAZE, self, pacman: { x: 13, y: 23, dir: 'left' }, blinky: self, mode: 'eaten' };
+  assert.deepStrictEqual( computeTarget( 'blinky', ctx ), PEN_DOORS[ 0 ], 'desde (6,20) va a la izquierda' );
+
+  // Y en cada puerta la mantiene.
+  for ( const puerta of PEN_DOORS ) {
+    const enPuerta = asustado( puerta.x, puerta.y, 'up', { mode: 'eaten' } );
+    assert.deepStrictEqual(
+      computeTarget( 'blinky', { ...ctx, self: enPuerta } ),
+      puerta,
+      'sobre la puerta ' + puerta.x + ',' + puerta.y
+    );
+  }
+  // insidePen sigue exportado y detectando el rectangulo del pen.
+  assert.ok( insidePen( { x: 13, y: 14 } ), 'dentro' );
+  assert.ok( !insidePen( { x: 13, y: 12 } ), 'la boca no esta dentro' );
+} );
+
+test( 'el rng de la partida lo usan solo los asustados', () => {
+  const game = newGame();
+  let llamadas = 0;
+  game.rng = () => { llamadas++; return 0; };
+  freeGhosts( game );
+
+  // Normales: no deben tocar el rng.
+  for ( const g of game.ghosts ) g.mode = 'active';
+  for ( let f = 0; f < 20; f++ ) {
+    for ( const g of game.ghosts ) window.GAME.moveGhost( game, g );
+  }
+  assert.strictEqual( llamadas, 0, 'las cuatro IAs no sortean' );
+
+  // Asustado: ahora si.
+  game.ghosts[ 0 ].mode = 'frightened';
+  window.GAME.moveGhost( game, game.ghosts[ 0 ] );
+  assert.ok( llamadas > 0, 'el asustado sortea direccion' );
 } );
