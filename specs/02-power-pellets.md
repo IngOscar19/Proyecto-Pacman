@@ -70,7 +70,7 @@ Convención nueva: el rng se pasa como `ctx.rng` a `chooseDirection` y vale `Mat
 
 ## Implementation plan
 
-1. `maze.js`: `parseTile` reconoce `'o'` como `4`, las filas 6 y 26 llevan pellet, `POWER_PELLETS`, `FRIGHT_FRAMES`, `FRIGHT_FLASH_FRAMES` y `FRIGHT_CHAIN` en el `api`. Test en `tests/power-pellets.test.js`: 31x28, 280 tiles de tipo 2, 4 tiles de tipo 4 y `POWER_PELLETS` coincidiendo con ellos. Manual: el laberinto se ve igual, sin errores. Commit: power pellets en el laberinto.
+1. `maze.js`: `parseTile` reconoce `'o'` como `4`, las filas 6 y 26 llevan pellet, `POWER_PELLETS`, `FRIGHT_FRAMES`, `FRIGHT_FLASH_FRAMES` y `FRIGHT_CHAIN` en el `api`. Test en `tests/power-pellets.test.js`: 31x28, 276 tiles de tipo 2, 4 tiles de tipo 4 y `POWER_PELLETS` coincidiendo con ellos. Manual: el laberinto se ve igual, sin errores. Commit: power pellets en el laberinto.
 2. `render.js`: `drawDots` dibuja el tile 4 como círculo de radio 5. Manual: se ven 4 círculos grandes parpadeando en el laberinto; `node --test` pasa. Commit: dibujo de la power pellet.
 3. `game.js`: en `movePacman` la rama del tile 4 pone la celda a 0, suma 50, marca `frightUntilFrame = game.frames + FRIGHT_FRAMES`, pone `frightScore` a 200 y pasa a `frightened` (con `didReverse = false`) a los fantasmas `active`. `update` expira el timer y los devuelve a `active`. `speedOf` en `game.js` resuelve la velocidad por mode. Tests: puntuación, timer, expiración, renovación y que los del pen no se asustan. Manual: al comer una pellet los 4 fantasmas se ralentizan y a los 6s recuperan su ritmo. Commit: comer una pellet activa el modo asustado.
 4. `ghost-ai.js`: `computeTarget` devuelve la puerta del pen para `eaten` y el objetivo existente para `frightened`; `chooseDirection` con `mode === 'frightened'` elige al azar entre las legales salvo la inversa (o la inversa si es la única, marcando `didReverse`), y exporta `insidePen`. Tests con `rng` inyectado: determinismo y legalidad. Manual: los fantasmas asustados ya no persiguen a Pacman. Commit: frightened se mueve al azar.
@@ -81,7 +81,7 @@ Convención nueva: el rng se pasa como `ctx.rng` a `chooseDirection` y vale `Mat
 
 - [ ] `node --test` termina con 0 tests fallidos.
 - [ ] `src/index.html` carga sin errores en la consola.
-- [ ] `MAZE` conserva 31 filas de 28 columnas y 280 tiles de tipo 2.
+- [ ] `MAZE` conserva 31 filas de 28 columnas, con 276 tiles de tipo 2 y 4 de tipo 4: 280 celdas comibles, las mismas que en SPEC 01.
 - [ ] Hay exactamente 4 tiles de tipo 4 y están en (1,6), (26,6), (1,26) y (26,26).
 - [ ] `POWER_PELLETS` coincide con las celdas de tipo 4 del laberinto.
 - [ ] Comer una pellet suma 50, deja la celda en 0 y fija `frightUntilFrame = frames + FRIGHT_FRAMES`.
@@ -95,7 +95,7 @@ Convención nueva: el rng se pasa como `ctx.rng` a `chooseDirection` y vale `Mat
 - [ ] Un fantasma comido queda `eaten`, se dibuja solo con ojos y no le quita vida a Pacman.
 - [ ] Un `eaten` se dirige a la puerta del pen, entra y vuelve a salir como `active`.
 - [ ] Un fantasma `active` que toca a Pacman le quita una vida y reinicia `frightUntilFrame`.
-- [ ] La victoria sigue exigiendo los 280 tiles de tipo 2.
+- [ ] La victoria sigue exigiendo los 276 tiles de tipo 2 (las pellets no cuentan).
 - [ ] `resetPositions` devuelve a los 4 fantasmas a `pen` y limpia `frightUntilFrame` y `frightScore`.
 - [ ] El laberinto parpadea en blanco/azul mientras dure el frightened y los asustados en blanco en los últimos `FRIGHT_FLASH_FRAMES`.
 
@@ -115,7 +115,7 @@ Convención nueva: el rng se pasa como `ctx.rng` a `chooseDirection` y vale `Mat
 - **Yes:** velocidad derivada del `mode` con `speedOf(g)` en vez de mutar `g.speed`. Un resto de velocidad desincronizada al expirar el timer sería un bug difícil de ver.
 - **Yes:** la elección de dirección asustada y los objetivos `eaten`/`frightened` van en `ghost-ai.js`, no en un `fright.js` nuevo. `ghost-ai.js` ya es el sitio donde se decide la dirección; no se crea ningún módulo nuevo.
 - **Yes:** el parpadeo se aplica al color de paredes y cuerpos, no con un overlay global. Un overlay tiñería a Pacman y a los fantasmas.
-- **Yes:** `dotsRemaining` sigue contando solo tipo 2. "Quedan 280 dots" es un criterio ya asumido por SPEC 01.
+- **Yes:** `dotsRemaining` sigue contando solo tipo 2, y las 4 pellets pasar de 280 a 276 dots comibles no es una perdida de contenido: son las mismas 280 celdas de SPEC 01 repartidas entre dots y pellets.
 
 ## Risks
 
@@ -126,7 +126,7 @@ Convención nueva: el rng se pasa como `ctx.rng` a `chooseDirection` y vale `Mat
 | `ctx.rng` rompe los tests de SPEC 01 | Las cuatro IAs no leen `rng`; el default `Math.random` solo lo consumen los `frightened`. |
 | Un fantasma asustado se queda atascado vibrando contra un muro | `chooseDirection` restringe a direcciones legales y, si no queda ninguna, invierte una sola vez y lo registra en `didReverse`. |
 | Expirar el frightened deja velocidad o color a medias | `speedOf(g)` y el color se derivan de `g.mode` en cada frame; no hay estado que limpiar. |
-| La sexta fila del laberinto cambia de largo al poner `'o'` | Test que comprueba 28 columnas y 280 tiles de tipo 2 en el mismo arranque. |
+| Las filas 6 y 26 del laberinto cambian de largo al poner `'o'` | Test que comprueba 28 columnas y 276 + 4 tiles en el mismo arranque. |
 
 ## What is **not** in this spec
 
