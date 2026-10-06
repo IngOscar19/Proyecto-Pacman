@@ -31,12 +31,10 @@
     return Math.floor( frame / 10 ) % 2 === 1;
   }
 
-  // Mientras queda frightened el laberinto parpadea en blanco y azul, como en el
-  // arcade. El blanco se aplica solo a las paredes: Pacman y los fantasmas se
-  // mantienen nitidos.
+  // El laberinto mantiene su color azul suave constante, eliminando el destello
+  // blanco estroboscopico para evitar fatiga visual.
   function wallColor( game, frame ) {
-    if ( !isFrightened( game ) ) return WALL_COLOR;
-    return blink( frame ) ? FLASH_COLOR : WALL_COLOR;
+    return WALL_COLOR;
   }
 
   function drawWalls( ctx, gGrid, color ) {
@@ -188,13 +186,12 @@
   }
 
   function drawGhost( ctx, g, color, game, frame ) {
-    const { cx, cy } = cellCenter( g.x, g.y );
-    const r = TILE / 2 - 1;
-
     if ( g.mode === 'eaten' ) {
-      drawGhostEyes( ctx, g, cx, cy );
       return;
     }
+
+    const { cx, cy } = cellCenter( g.x, g.y );
+    const r = TILE / 2 - 1;
 
     const asustado = g.mode === 'frightened';
     drawGhostBody( ctx, cx, cy, r, asustado ? frightColor( game, frame ) : color );
